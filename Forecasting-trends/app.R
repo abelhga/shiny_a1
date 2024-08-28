@@ -45,14 +45,24 @@ server <- function(input, output) {
   
   # Reactive data retrieval based on user inputs
   trends_data <- eventReactive(input$update, {
-    gtrends(
-      keyword = unlist(strsplit(input$keywords, ",")),
-      geo = input$geo,
-      time = "today+5-y",
-      tz = 0
-    )$interest_over_time %>%
-      mutate(date = ymd(date)) %>%
-      filter(date < Sys.Date() - 1)
+    keywords <- unlist(strsplit(input$keywords, ","))
+    if (length(keywords) == 1) {
+      keywords <- c(keywords, keywords)  # Asegura que siempre haya al menos dos keywords para evitar problemas
+    }
+    tryCatch({
+      curl::handle_setopt(curl::new_handle(), http_version = 1)
+      gtrends(
+        keyword = keywords,
+        geo = input$geo,
+        time = "today+5-y",
+        tz = 0
+      )$interest_over_time %>%
+        mutate(date = ymd(date)) %>%
+        filter(date < Sys.Date() - 1)
+    }, error = function(e) {
+      showNotification("Error retrieving data from Google Trends. Please try again later.", type = "error")
+      NULL
+    })
   })
   
   # Reactive forecasting model
