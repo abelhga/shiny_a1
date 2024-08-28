@@ -93,21 +93,25 @@ server <- function(input, output) {
            title = 'Google Trends: interest over time',
            caption = "Data from Google Trends")
   })
-  # Plot forecast data
-  output$forecastPlot <- renderPlot({
-    req(forecast_data())
-    forecast_data() %>%
-      ggplot() +
-      geom_line(aes(ds, yhat)) +
-      geom_ribbon(aes(ds, ymin = yhat_lower, ymax = yhat_upper), fill = 'green', alpha = 0.3) +
-      theme_bw() +
-      labs(x = NULL, y = "Relative Search Interest",
-           title = "Forecasting with Prophet") +
-      annotate("text", x = max(forecast_data()$ds), y = min(forecast_data()$yhat_lower), 
-               label = "Green: Forecasted, Black: Actual", 
-               hjust = 1, vjust = -0.5, size = 4, colour = "black")
-  })
+# Plot forecast data
+output$forecastPlot <- renderPlot({
+  req(forecast_data())
   
+  ggplot(forecast_data()) +
+    geom_ribbon(aes(x = ds, ymin = yhat_lower, ymax = yhat_upper, fill = "Forecasted"), 
+                alpha = 0.3) +
+    geom_line(aes(x = ds, y = yhat, color = "Actual"), size = 1) +
+    theme_bw() +
+    labs(x = NULL, y = "Relative Search Interest",
+         title = "Forecasting with Prophet") +
+    scale_fill_manual(name = "Legend", values = c("Forecasted" = "green","Actual" = "black")) +
+    scale_color_manual(name = " ", values = c("Actual" = "black")) +
+    annotate("text", x = max(forecast_data()$ds), y = min(forecast_data()$yhat_lower), 
+             label = "www.abelhga.com", 
+             hjust = 1, vjust = -0.5, size = 4, colour = "black") +
+    guides(fill = guide_legend(order = 1),
+           color = guide_legend(order = 2))
+})
   
   
   # Plot forecast components
@@ -117,6 +121,7 @@ server <- function(input, output) {
   })
 }
 
+(r_laptop_m , r_laptop_ftdata , uncertainty = TRUE)
 
 # Run the application 
 shinyApp(ui = ui, server = server)
