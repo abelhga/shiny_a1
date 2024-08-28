@@ -67,6 +67,7 @@ server <- function(input, output) {
   
   # Reactive forecasting model
   forecast_data <- eventReactive(input$update, {
+    req(trends_data())
     laptop_data <- trends_data() %>%
       filter(keyword == unlist(strsplit(input$keywords, ","))[1]) %>%
       select(date, hits) %>%
@@ -79,7 +80,9 @@ server <- function(input, output) {
   })
   
   # Plot trends data
+  
   output$trendsPlot <- renderPlot({
+    req(trends_data())
     trends_data() %>%
       ggplot() +
       geom_line(aes(date, hits, color = keyword), size = 0.5) +
@@ -90,20 +93,26 @@ server <- function(input, output) {
            title = 'Google Trends: interest over time',
            caption = "Data from Google Trends")
   })
-  
   # Plot forecast data
   output$forecastPlot <- renderPlot({
+    req(forecast_data())
     forecast_data() %>%
       ggplot() +
       geom_line(aes(ds, yhat)) +
       geom_ribbon(aes(ds, ymin = yhat_lower, ymax = yhat_upper), fill = 'green', alpha = 0.3) +
       theme_bw() +
       labs(x = NULL, y = "Relative Search Interest",
-           title = "Forecasting with Prophet")
+           title = "Forecasting with Prophet") +
+      annotate("text", x = max(forecast_data()$ds), y = min(forecast_data()$yhat_lower), 
+               label = "Green: Forecasted, Black: Actual", 
+               hjust = 1, vjust = -0.5, size = 4, colour = "black")
   })
+  
+  
   
   # Plot forecast components
   output$componentsPlot <- renderPlot({
+    req(forecast_data())
     prophet_plot_components(prophet(trends_data()), forecast_data())
   })
 }
