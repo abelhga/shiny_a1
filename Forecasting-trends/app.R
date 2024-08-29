@@ -23,13 +23,11 @@ ui <- fluidPage(
   
   sidebarLayout(
     sidebarPanel(
-      textInput("keywords", "Enter Keywords (comma-separated):", "Lavender, Daffodil, Bluebell"),
+      textInput("keywords", "Enter Keywords (comma-separated). Only first word will be used for forecast:", "Lavender, Daffodil, Bluebell"),
       selectInput("geo", "Select Region:", choices = c("GB", "US","MX","Worldwide"), selected = "GB"),
-      
       selectInput("time", "Select the Time Span:", choices = c("now 1-H", "now 4-H","now 1-d","now 7-d", "today 1-m", "today 3-m", "today 12-m", "today+5-y", "all"), selected = "today+5-y"), #we add the list for different periods of time
-      
       sliderInput("forecast_period", "Forecast Period (Days):", min = 1, max = 730, value = 180),
-      actionButton("update", "Update Forecast")
+      actionButton("update", "Update")
     ),
     
     mainPanel(
@@ -46,12 +44,14 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
   
+  
   # Reactive data retrieval based on user inputs
   trends_data <- eventReactive(input$update, {
     keywords <- unlist(strsplit(input$keywords, ","))
     if (length(keywords) == 1) {
       keywords <- c(keywords, keywords)  # Asegura que siempre haya al menos dos keywords para evitar problemas
     }
+    
     tryCatch({
       curl::handle_setopt(curl::new_handle(), http_version = 1)
       gtrends(
@@ -68,20 +68,31 @@ server <- function(input, output) {
     })
   })
   
+  #----------------
   # Reactive forecasting model
   forecast_data <- eventReactive(input$update, {
     req(trends_data())
-    laptop_data <- trends_data() %>%
+    trend_df <- trends_data() %>%
       filter(keyword == unlist(strsplit(input$keywords, ","))[1]) %>%
       select(date, hits) %>%
       rename(ds = date, y = hits) %>%
       arrange(ds)
     
-    m <- prophet(laptop_data)
+    m <- prophet(trend_df)
     future <- make_future_dataframe(m, periods = input$forecast_period, freq = "day", include_history = TRUE)
-    predict(m, future)
+    forecast <- predict(m, future)
+
+  
+   # Combine actual and forecast data
+    combined_data <- forecast %>%
+    mutate(ds = ymd(ds),
+           segment = case_when(ds > Sys.Date() - 1 ~ 'forecast', TRUE ~ 'actual')) %>%
+    select(ds, segment, yhat_lower, yhat, yhat_upper) %>%
+    left_join(trend_df, by = c("ds" = "ds"))
+ 
   })
   
+  #----------------
   # Plot trends data
   
   output$trendsPlot <- renderPlot({
@@ -96,19 +107,26 @@ server <- function(input, output) {
            title = 'Google Trends: interest over time',
            caption = "Data from Google Trends")
   })
+  
   # Plot forecast data
   output$forecastPlot <- renderPlot({
     req(forecast_data())
     
-    ggplot(forecast_data()) +
-      geom_ribbon(aes(x = ds, ymin = yhat_lower, ymax = yhat_upper, fill = "Forecasted"), 
+    forecast_data() %>%
+      ggplot() +
+      geom_line(aes(x = ds, y = y, color = "Actual"), size = 0.5) + # Line for actual data
+      geom_line(data = subset(forecast_data(), segment == "forecast"), 
+                aes(x = ds, y = yhat, color = "Forecast"), size = 0.5) + # Line for forecast data
+      geom_ribbon(data = subset(forecast_data(), segment == "forecast"), 
+                  aes(x = ds, ymin = yhat_lower, ymax = yhat_upper, fill = "Forecasted"), 
                   alpha = 0.3) +
-      geom_line(aes(x = ds, y = yhat, color = "Actual"), size = 1) +
       theme_bw() +
       labs(x = NULL, y = "Relative Search Interest",
-           title = "Forecasting with Prophet") +
-      scale_fill_manual(name = "Legend", values = c("Forecasted" = "green","Actual" = "black")) +
-      scale_color_manual(name = " ", values = c("Actual" = "black")) +
+           title = "Forecasting with Prophet",
+           color = "Legend",
+           fill = "Legend") +
+      scale_fill_manual(values = c("Forecasted" = "green")) +
+      scale_color_manual(values = c("Actual" = "black", "Forecast" = "blue")) +
       annotate("text", x = max(forecast_data()$ds), y = min(forecast_data()$yhat_lower), 
                label = "www.abelhga.com", 
                hjust = 1, vjust = -0.5, size = 4, colour = "black") +
