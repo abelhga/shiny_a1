@@ -94,12 +94,8 @@ server <- function(input, output) {
            caption = "Data from Google Trends")
   })
   # Plot forecast data
- 
   output$forecastPlot <- renderPlot({
     req(forecast_data())
-    
-    forecast_data_filtered <- forecast_data() %>%
-      filter(ds <= Sys.Date())  # Filtra las fechas futuras para la parte histórica
     
     ggplot(forecast_data()) +
       geom_ribbon(aes(x = ds, ymin = yhat_lower, ymax = yhat_upper, fill = "Forecasted"), 
@@ -116,7 +112,6 @@ server <- function(input, output) {
       guides(fill = guide_legend(order = 1),
              color = guide_legend(order = 2))
   })
-  
   
   
   # Plot forecast components
