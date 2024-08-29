@@ -23,8 +23,11 @@ ui <- fluidPage(
   
   sidebarLayout(
     sidebarPanel(
-      textInput("keywords", "Enter Keywords (comma-separated):", "laptop,desktop,tablet"),
+      textInput("keywords", "Enter Keywords (comma-separated):", "Lavender, Daffodil, Bluebell"),
       selectInput("geo", "Select Region:", choices = c("GB", "US","MX","Worldwide"), selected = "GB"),
+      
+      selectInput("time", "Select the Time Span:", choices = c("now 1-H", "now 4-H","now 1-d","now 7-d", "today 1-m", "today 3-m", "today 12-m", "today+5-y", "all"), selected = "today+5-y"), #we add the list for different periods of time
+      
       sliderInput("forecast_period", "Forecast Period (Days):", min = 1, max = 730, value = 180),
       actionButton("update", "Update Forecast")
     ),
@@ -54,7 +57,7 @@ server <- function(input, output) {
       gtrends(
         keyword = keywords,
         geo = input$geo,
-        time = "today+5-y",
+        time = input$time,
         tz = 0
       )$interest_over_time %>%
         mutate(date = ymd(date)) %>%
