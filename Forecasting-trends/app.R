@@ -38,7 +38,8 @@ ui <- fluidPage(
       tabsetPanel(
         tabPanel("Trends Plot", plotOutput("trendsPlot")),
         tabPanel("Forecast Plot", plotOutput("forecastPlot"),"This model is optimized for forecasting time series with seasonal patterns."),
-        tabPanel("Model Components", plotOutput("componentsPlot"))
+        tabPanel("Model Components", plotOutput("componentsPlot")),
+        tabPanel("Anomaly Detection", plotOutput("anomalyDetection"))
       ),
       textOutput("trendText"),
       textOutput("summaryStats")
@@ -174,6 +175,24 @@ server <- function(input, output) {
     forecast <- predict(prophet_model(), future)
     prophet_plot_components(prophet_model(), forecast, uncertainty = TRUE)
   })
+  
+  
+  #Plot anomalies
+  output$anomalyDetection <- renderPlot({
+    req(trends_data())
+    trend_df <- trends_data() %>%
+      filter(keyword == unlist(strsplit(input$keywords, ","))[1]) %>%
+      select(date, hits) %>%
+      mutate(change = c(NA, diff(hits)))  # Calculate daily changes
+    
+    ggplot(trend_df, aes(x = date)) +
+      geom_line(aes(y = hits), color = "black", size = 0.5) +
+      geom_point(data = trend_df[abs(trend_df$change) > 40, ], 
+                 aes(y = hits), color = "red", size = 2) +  # Highlight significant changes
+      labs(title = "Significant Changes in Trends", y = "Search Interest", x = "Date") +
+      theme_minimal()
+  })
+  
   
   
   #Include a summary
