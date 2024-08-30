@@ -40,7 +40,8 @@ ui <- fluidPage(
         tabPanel("Forecast Plot", plotOutput("forecastPlot"),"This model is optimized for forecasting time series with seasonal patterns."),
         tabPanel("Model Components", plotOutput("componentsPlot"))
       ),
-      textOutput("trendText")
+      textOutput("trendText"),
+      textOutput("summaryStats")
     )
   )
 )
@@ -174,7 +175,28 @@ server <- function(input, output) {
     prophet_plot_components(prophet_model(), forecast, uncertainty = TRUE)
   })
   
-  # Mostrar si la tendencia es positiva o negativa
+  
+  #Include a summary
+  output$summaryStats <- renderText({
+    req(trends_data())
+    trend_df <- trends_data() %>%
+      filter(keyword == unlist(strsplit(input$keywords, ","))[1]) %>%
+      select(date, hits)
+    
+    mean_hits <- mean(trend_df$hits)
+    median_hits <- median(trend_df$hits)
+    max_hits <- max(trend_df$hits)
+    min_hits <- min(trend_df$hits)
+    
+    paste(
+      "Mean: ", round(mean_hits, 2), 
+      " | Median: ", round(median_hits, 2),
+      " | Max: ", max_hits, 
+      " | Min: ", min_hits
+    )
+  })
+  
+# Mostrar si la tendencia es positiva o negativa
   output$trendText <- renderText({
     req(forecast_data())
     
