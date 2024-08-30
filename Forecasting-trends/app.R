@@ -122,7 +122,7 @@ server <- function(input, output) {
                   alpha = 0.3) +
       theme_bw() +
       labs(x = NULL, y = "Relative Search Interest",
-           title = "Forecasting with Prophet",
+           title = "Time Series Decomposition and Prediction using the Prophet Additive Models",
            color = "Legend",
            fill = "Legend") +
       scale_fill_manual(values = c("Forecasted" = "green")) +
