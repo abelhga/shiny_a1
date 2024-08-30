@@ -1,11 +1,5 @@
 #
-# This is a Shiny web application. You can run the application by clicking
-# the 'Run App' button above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
+# This is a Shiny web application made by Abel Hernández García // hi@abelhga.com // www.abelhga.com
 
 library(shiny)
 library(shiny)
@@ -15,7 +9,7 @@ library(gtrendsR)
 library(prophet)
 library(lubridate)
 
-
+#UI
 # Define UI for application that draws a histogram
 
 ui <- fluidPage(
@@ -33,14 +27,15 @@ ui <- fluidPage(
     mainPanel(
       tabsetPanel(
         tabPanel("Trends Plot", plotOutput("trendsPlot")),
-        tabPanel("Forecast Plot", plotOutput("forecastPlot")),
+        tabPanel("Forecast Plot", plotOutput("forecastPlot"),"This model is optimized for forecasting time series with seasonal patterns."),
         tabPanel("Model Components", plotOutput("componentsPlot"))
-      )
+      ),
+      textOutput("trendText")
     )
   )
 )
 
-
+#SERVER
 # Define server logic required to draw a histogram
 server <- function(input, output) {
   
@@ -69,9 +64,11 @@ server <- function(input, output) {
   })
   
   #----------------
-  # Reactive forecasting model
-  forecast_data <- eventReactive(input$update, {
+  # Reactive Prophet model
+  prophet_model <- reactive({
     req(trends_data())
+    
+    # Defining trend_df inside of forecast_data
     trend_df <- trends_data() %>%
       filter(keyword == unlist(strsplit(input$keywords, ","))[1]) %>%
       select(date, hits) %>%
@@ -79,16 +76,40 @@ server <- function(input, output) {
       arrange(ds)
     
     m <- prophet(trend_df)
-    future <- make_future_dataframe(m, periods = input$forecast_period, freq = "day", include_history = TRUE)
-    forecast <- predict(m, future)
+    m
+  })
+  
+  # Reactive forecast data
+  forecast_data <- reactive({
+    req(prophet_model())
+    
+    #Defining trend_df
+    trend_df <- trends_data() %>%
+      filter(keyword == unlist(strsplit(input$keywords, ","))[1]) %>%
+      select(date, hits) %>%
+      rename(ds = date, y = hits) %>%
+      arrange(ds)
+    
+    future <- make_future_dataframe(prophet_model(), periods = input$forecast_period, freq = "day", include_history = TRUE)
+    forecast <- predict(prophet_model(), future)
 
   
    # Combine actual and forecast data
     combined_data <- forecast %>%
-    mutate(ds = ymd(ds),
-           segment = case_when(ds > Sys.Date() - 1 ~ 'forecast', TRUE ~ 'actual')) %>%
-    select(ds, segment, yhat_lower, yhat, yhat_upper) %>%
-    left_join(trend_df, by = c("ds" = "ds"))
+      mutate(ds = ymd(ds),
+             segment = case_when(ds > Sys.Date() - 1 ~ 'forecast', TRUE ~ 'actual')) %>%
+      select(ds, segment, yhat_lower, yhat, yhat_upper) %>%
+      left_join(trend_df, by = c("ds" = "ds"))
+    
+    
+    # Calculating the linear slope
+    trend_lm <- lm(y ~ ds, data = trend_df)
+    slope <- coef(trend_lm)["ds"]
+    
+    attr(combined_data, "trend_slope") <- slope #Saving the slop as an attribute
+    
+    
+    combined_data
  
   })
   
@@ -122,7 +143,7 @@ server <- function(input, output) {
                   alpha = 0.3) +
       theme_bw() +
       labs(x = NULL, y = "Relative Search Interest",
-           title = "Forecasting with Prophet",
+           title = "Time Series Decomposition and Prediction using the Prophet Additive Models",
            color = "Legend",
            fill = "Legend") +
       scale_fill_manual(values = c("Forecasted" = "green")) +
@@ -137,13 +158,32 @@ server <- function(input, output) {
   
   # Plot forecast components
   output$componentsPlot <- renderPlot({
-    req(forecast_data())
-    prophet_plot_components(m, forecast_data(), uncertainty = TRUE)
+    req(prophet_model())
+    future <- make_future_dataframe(prophet_model(), periods = input$forecast_period, freq = "day", include_history = TRUE)
+    forecast <- predict(prophet_model(), future)
+    prophet_plot_components(prophet_model(), forecast, uncertainty = TRUE)
   })
+  
+  # Mostrar si la tendencia es positiva o negativa
+  output$trendText <- renderText({
+    req(forecast_data())
+    
+    slope <- attr(forecast_data(), "trend_slope")
+    
+    if (slope > 0) {
+      "The trend for the first word is positive."
+    } else if (slope < 0) {
+      "The trend for the first word is negative."
+    } else {
+      "The trend for the first word is neutral."
+    }
+  })
+  
 }
 
 
 
+#RUN
 # Run the application 
 shinyApp(ui = ui, server = server)
 
