@@ -18,7 +18,6 @@ library(countrycode)
 # Convert to a named vector for use in selectInput
 country_choices <- setNames(countries$iso2c, countries$country.name.en)
 
-
 #UI
 # Define UI for application that draws a histogram
 
