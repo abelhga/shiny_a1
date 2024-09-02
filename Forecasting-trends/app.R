@@ -221,11 +221,11 @@ server <- function(input, output) {
     slope <- attr(forecast_data(), "trend_slope")
     
     if (slope > 0) {
-      "The trend for the first keyword is positive."
+      "The historical trend for the first keyword is positive."
     } else if (slope < 0) {
-      "The trend for the first keyword is negative."
+      "The historical trend for the first keyword is negative."
     } else {
-      "The trend for the first keyword is neutral."
+      "The historical trend for the first keyword is neutral."
     }
   })
   
