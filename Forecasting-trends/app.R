@@ -9,6 +9,8 @@ library(gtrendsR)
 library(prophet)
 library(lubridate)
 library(countrycode)
+library(shinycssloaders) #to give visual feedback when data is being loaded.
+
 
 # Getting a list of country names and corresponding ISO 3166-1 alpha-2 codes
   countries <- countrycode::codelist %>%
@@ -35,10 +37,10 @@ ui <- fluidPage(
     
     mainPanel(
       tabsetPanel(
-        tabPanel("Trends Plot", plotOutput("trendsPlot")),
-        tabPanel("Forecast Plot", plotOutput("forecastPlot"),"This model is optimized for forecasting time series with seasonal patterns."),
-        tabPanel("Model Components", plotOutput("componentsPlot")),
-        tabPanel("Anomaly Detection", plotOutput("anomalyDetection"))
+        tabPanel("Trends Plot", withSpinner(plotOutput("trendsPlot"))),
+        tabPanel("Forecast Plot", withSpinner(plotOutput("forecastPlot")),"This model is optimized for forecasting time series with seasonal patterns."),
+        tabPanel("Model Components", withSpinner(plotOutput("componentsPlot"))),
+        tabPanel("Anomaly Detection", withSpinner(plotOutput("anomalyDetection")))
       ),
       textOutput("trendText"),
       textOutput("summaryStats")
@@ -186,7 +188,7 @@ server <- function(input, output) {
     
     ggplot(trend_df, aes(x = date)) +
       geom_line(aes(y = hits), color = "black", size = 0.5) +
-      geom_point(data = trend_df[abs(trend_df$change) > 40, ], 
+      geom_point(data = trend_df[abs(trend_df$change) > 20, ], 
                  aes(y = hits), color = "red", size = 2) +  # Highlight significant changes
       labs(title = "Significant Changes in Trends", y = "Search Interest", x = "Date") +
       theme_minimal()
