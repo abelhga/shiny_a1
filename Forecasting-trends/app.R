@@ -183,7 +183,7 @@ server <- function(input, output) {
     if (slope > 0) {
       "The trend for the first keyword is positive."
     } else if (slope < 0) {
-      "The trend for the first keyword is negative."
+      "The historical trend for the first keyword is negative."
     } else {
       "The trend for the first keyword is neutral."
     }
