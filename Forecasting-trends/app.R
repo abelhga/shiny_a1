@@ -10,6 +10,7 @@ library(prophet)
 library(lubridate)
 library(countrycode)
 library(shinycssloaders) #to give visual feedback when data is being loaded.
+library(plotly)
 
 
 # Getting a list of country names and corresponding ISO 3166-1 alpha-2 codes
@@ -131,7 +132,8 @@ server <- function(input, output) {
   
   output$trendsPlot <- renderPlot({
     req(trends_data())
-    trends_data() %>%
+    
+    p <- trends_data() %>%
       ggplot() +
       geom_line(aes(date, hits, color = keyword), size = 0.5) +
       scale_y_continuous(limits = c(0, 100)) +
@@ -140,13 +142,14 @@ server <- function(input, output) {
       labs(x = NULL, y = "Relative Search Interest",
            title = 'Google Trends: interest over time',
            caption = "Data from Google Trends")
+    ggplotly(p)
   })
   
   # Plot forecast data
   output$forecastPlot <- renderPlot({
     req(forecast_data())
     
-    forecast_data() %>%
+    P <- forecast_data() %>%
       ggplot() +
       geom_line(aes(x = ds, y = y, color = "Actual"), size = 0.5) + # Line for actual data
       geom_line(data = subset(forecast_data(), segment == "forecast"), 
@@ -188,7 +191,7 @@ server <- function(input, output) {
     
     ggplot(trend_df, aes(x = date)) +
       geom_line(aes(y = hits), color = "black", size = 0.5) +
-      geom_point(data = trend_df[abs(trend_df$change) > 20, ], 
+      geom_point(data = trend_df[abs(trend_df$change) > 15, ], 
                  aes(y = hits), color = "red", size = 2) +  # Highlight significant changes
       labs(title = "Significant Changes in Trends", y = "Search Interest", x = "Date") +
       theme_minimal()
