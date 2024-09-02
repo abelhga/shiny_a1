@@ -133,7 +133,7 @@ server <- function(input, output) {
   output$trendsPlot <- renderPlot({
     req(trends_data())
     
-    p <- trends_data() %>%
+    trends_data() %>%
       ggplot() +
       geom_line(aes(date, hits, color = keyword), size = 0.5) +
       scale_y_continuous(limits = c(0, 100)) +
@@ -142,14 +142,13 @@ server <- function(input, output) {
       labs(x = NULL, y = "Relative Search Interest",
            title = 'Google Trends: interest over time',
            caption = "Data from Google Trends")
-    ggplotly(p)
   })
   
   # Plot forecast data
   output$forecastPlot <- renderPlot({
     req(forecast_data())
     
-    P <- forecast_data() %>%
+    forecast_data() %>%
       ggplot() +
       geom_line(aes(x = ds, y = y, color = "Actual"), size = 0.5) + # Line for actual data
       geom_line(data = subset(forecast_data(), segment == "forecast"), 
