@@ -108,7 +108,7 @@ ui <- fluidPage(
       selectInput("level", "Suggestion Level:", choices = 1:3, selected = 2),
       selectInput("stopwords_lang", "Stopwords Language:", 
                   choices = c("English" = "en", "Spanish" = "es", "French" = "fr", "German" = "de")),
-      selectInput("solver", "Select Solver:", choices = c("barnesHut", "repulsion", "hierarchicalRepulsion", "forceAtlas2Based")),
+      selectInput("solver", "Select Solver:", choices = c("barnesHut", "forceAtlas2Based","repulsion")),
       
       helpText("Suggestion Methods:",
                tags$ul(
@@ -118,9 +118,8 @@ ui <- fluidPage(
       helpText("Solvers:",
                tags$ul(
                  tags$li(tags$b("barnesHut:"), " Suitable for large networks, fast and efficient."),
-                 tags$li(tags$b("repulsion:"), " Good for small to medium networks with strong node repulsion."),
-                 tags$li(tags$b("hierarchicalRepulsion:"), " Best for hierarchical layouts, ensures layers are well separated."),
-                 tags$li(tags$b("forceAtlas2Based:"), " Mimics physical forces, good for organic and aesthetic layouts.")
+                 tags$li(tags$b("forceAtlas2Based:"), " Mimics physical forces, good for organic and aesthetic layouts. Recommended when the network cannot be stabilized."),
+                 tags$li(tags$b("repulsion:"), " Good for small to medium networks with strong node repulsion.")
                )),
       
       actionButton("update", "Generate Network", class = "btn-update")
