@@ -36,6 +36,8 @@ ui <- fluidPage(
       textInput("keywords", "Enter Keywords (comma-separated). Only first word will be used for forecasting:", "Lavender, Daffodil, Bluebell"),
       selectInput("geo", "Select Region:", choices = c(country_choices,"Worldwide"), selected = "GB"),
       selectInput("time", "Select the Time Span:", choices = c("now 1-H", "now 4-H","now 1-d","now 7-d", "today 1-m", "today 3-m", "today 12-m", "today+5-y", "all"), selected = "today+5-y"), #we add the list for different periods of time
+      # Add help text below the time span selection
+      helpText("If you want to identify seasonality of the day of the week, select a time span maximum of 3 months."),
       sliderInput("forecast_period", "Forecast Period (Days):", min = 1, max = 730, value = 180),
       actionButton("update", "Update")
     ),
@@ -45,7 +47,7 @@ ui <- fluidPage(
         tabPanel("Trends Plot", withSpinner(plotlyOutput("trendsPlot"))),
         tabPanel(
           "Forecast and Components",
-          withSpinner(plotOutput("forecastPlot", height = "400px")),
+          withSpinner(plotOutput("forecastPlot", height = "400px")),"SEASONALITY",
           withSpinner(plotOutput("componentsPlot", height = "400px")),
           "This model is optimized for forecasting time series with seasonal patterns."
         ),
@@ -201,7 +203,7 @@ server <- function(input, output) {
     
     ggplot(trend_df, aes(x = date)) +
       geom_line(aes(y = hits), color = "black", size = 0.5) +
-      geom_point(data = trend_df[abs(trend_df$change) > 15, ], 
+      geom_point(data = trend_df[abs(trend_df$change) > 20, ], 
                  aes(y = hits), color = "red", size = 2) +  # Highlight significant changes
       labs(title = "Significant Changes in Trends", y = "Search Interest", x = "Date") +
       theme_minimal()
