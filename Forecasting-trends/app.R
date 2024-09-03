@@ -2,7 +2,6 @@
 # This is a Shiny web application made by Abel Hernández García // hi@abelhga.com // www.abelhga.com
 
 library(shiny)
-library(shiny)
 library(dplyr)
 library(ggplot2)
 library(gtrendsR)
@@ -12,6 +11,11 @@ library(countrycode)
 library(shinycssloaders) #to give visual feedback when data is being loaded.
 library(plotly)
 
+
+library(igraph)
+library(visNetwork)
+library(tidyr)
+library(stringr)
 
 # Getting a list of country names and corresponding ISO 3166-1 alpha-2 codes
   countries <- countrycode::codelist %>%
@@ -38,10 +42,11 @@ ui <- fluidPage(
     
     mainPanel(
       tabsetPanel(
-        tabPanel("Trends Plot", withSpinner(plotOutput("trendsPlot"))),
+        tabPanel("Trends Plot", withSpinner(plotlyOutput("trendsPlot"))),
         tabPanel("Forecast Plot", withSpinner(plotOutput("forecastPlot")),"This model is optimized for forecasting time series with seasonal patterns."),
         tabPanel("Model Components", withSpinner(plotOutput("componentsPlot"))),
-        tabPanel("Anomaly Detection", withSpinner(plotOutput("anomalyDetection")))
+        tabPanel("Anomaly Detection", withSpinner(plotOutput("anomalyDetection"))),
+        tabPanel("Network Visualization", withSpinner(visNetworkOutput("networkPlot")))
       ),
       textOutput("trendText"),
       textOutput("summaryStats")
@@ -127,10 +132,13 @@ server <- function(input, output) {
  
   })
   
+  
+  
+  
   #----------------
   # Plot trends data
   
-  output$trendsPlot <- renderPlot({
+  output$trendsPlot <- renderPlotly({
     req(trends_data())
     
     trends_data() %>%
@@ -232,6 +240,8 @@ server <- function(input, output) {
       "The historical trend for the first keyword is neutral."
     }
   })
+  
+  
   
 }
 

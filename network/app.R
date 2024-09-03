@@ -79,7 +79,7 @@ ui <- fluidPage(
       .main-panel {
         padding: 20px;
       }
-      .btn-update {
+      .btn-update, .btn-stabilize {
         width: 100%;
         background-color: #007bff;
         color: white;
@@ -87,12 +87,13 @@ ui <- fluidPage(
         padding: 10px;
         border-radius: 8px;
         border: none;
+        margin-bottom: 10px;
       }
-      .btn-update:hover {
+      .btn-update:hover, .btn-stabilize:hover {
         background-color: #0056b3;
       }
       #networkPlot {
-        height: 700px;
+        height: 850px;
       }
     "))
   ),
@@ -107,17 +108,24 @@ ui <- fluidPage(
       selectInput("method", "Suggestion Method:", choices = c("Alphabetically" = "alphabetically", "By Vector" = "by_vector")),
       selectInput("stopwords_lang", "Stopwords Language:", 
                   choices = c("English" = "en", "Spanish" = "es", "French" = "fr", "German" = "de")),
-      actionButton("update", "Generate Network", class = "btn-update")
+      actionButton("update", "Generate Network", class = "btn-update"),
+      actionButton("stabilize", "Force Stabilization", class = "btn-stabilize")
     ),
     mainPanel(
       class = "main-panel",
-      visNetworkOutput("networkPlot", width = "100%", height = "700px")
+      visNetworkOutput("networkPlot", width = "100%", height = "850px")
     )
   )
 )
 
 # Server
 server <- function(input, output, session) {
+  
+  output$networkPlot <- renderVisNetwork({
+    visNetwork(nodes = data.frame(id = 1, label = "Click Generate Network"), edges = data.frame()) %>%
+      visOptions(manipulation = TRUE, highlightNearest = TRUE, nodesIdSelection = TRUE) %>%
+      visLayout(randomSeed = 11)
+  })
   
   observeEvent(input$update, {
     keyword <- input$keyword
@@ -166,7 +174,7 @@ server <- function(input, output, session) {
     
     output$networkPlot <- renderVisNetwork({
       visNetwork(nodos, aristas) %>%
-        visPhysics(stabilization = FALSE) %>%
+        visPhysics(stabilization = list(iterations = 1000, fit = TRUE)) %>%  # Allow stabilization with a max of 1000 iterations
         visInteraction(dragNodes = TRUE) %>%
         visEvents(stabilizationIterationsDone = "function () {this.setOptions( { physics: false } );}") %>%
         visNodes(
@@ -178,6 +186,19 @@ server <- function(input, output, session) {
         visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE) %>%
         visLayout(randomSeed = 11)
     })
+  })
+  
+  observeEvent(input$stabilize, {
+    visNetworkProxy("networkPlot") %>%
+      visStabilize() %>%
+      visPhysics(stabilization = FALSE)  # Disable physics after stabilization
+  })
+  
+  # Automatically disable physics after 10 seconds (10000 ms)
+  observe({
+    invalidateLater(10000, session)
+    visNetworkProxy("networkPlot") %>%
+      visPhysics(enabled = FALSE)
   })
 }
 
