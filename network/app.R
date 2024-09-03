@@ -7,6 +7,7 @@ library(tm)
 library(slam)
 library(httr)
 library(visNetwork)
+library(shinycssloaders)
 library(XML)
 
 # Function to get Google Suggest queries
@@ -102,9 +103,9 @@ ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       class = "sidebar",
-      textInput("keyword", "Enter Keyword:", value = "laptop"),
-      selectInput("level", "Suggestion Level:", choices = 1:3),
+      textInput("keyword", "Enter Keyword:", value = "where can I buy"),
       selectInput("method", "Suggestion Method:", choices = c("By Vector" = "by_vector","Alphabetically" = "alphabetically")),
+      selectInput("level", "Suggestion Level:", choices = 1:3, selected = 2),
       selectInput("stopwords_lang", "Stopwords Language:", 
                   choices = c("English" = "en", "Spanish" = "es", "French" = "fr", "German" = "de")),
       selectInput("solver", "Select Solver:", choices = c("barnesHut", "repulsion", "hierarchicalRepulsion", "forceAtlas2Based")),
@@ -126,7 +127,7 @@ ui <- fluidPage(
     ),
     mainPanel(
       class = "main-panel",
-      visNetworkOutput("networkPlot", width = "100%", height = "850px")
+      visNetworkOutput("networkPlot", width = "100%", height = "850px"), "These results are tailored to your current location. To explore the network from a different geographic perspective, consider using a VPN to change your location."
     )
   )
 )
