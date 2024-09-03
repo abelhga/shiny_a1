@@ -43,8 +43,12 @@ ui <- fluidPage(
     mainPanel(
       tabsetPanel(
         tabPanel("Trends Plot", withSpinner(plotlyOutput("trendsPlot"))),
-        tabPanel("Forecast Plot", withSpinner(plotOutput("forecastPlot")),"This model is optimized for forecasting time series with seasonal patterns."),
-        tabPanel("Model Components", withSpinner(plotOutput("componentsPlot"))),
+        tabPanel(
+          "Forecast and Components",
+          withSpinner(plotOutput("forecastPlot", height = "400px")),
+          withSpinner(plotOutput("componentsPlot", height = "400px")),
+          "This model is optimized for forecasting time series with seasonal patterns."
+        ),
         tabPanel("Anomaly Detection", withSpinner(plotOutput("anomalyDetection")))
       ),
       textOutput("trendText"),
@@ -183,7 +187,7 @@ server <- function(input, output) {
     req(prophet_model())
     future <- make_future_dataframe(prophet_model(), periods = input$forecast_period, freq = "day", include_history = TRUE)
     forecast <- predict(prophet_model(), future)
-    prophet_plot_components(prophet_model(), forecast, uncertainty = TRUE)
+    prophet_plot_components(prophet_model(), forecast, plot_cap = TRUE, uncertainty = TRUE)
   })
   
   
@@ -202,7 +206,6 @@ server <- function(input, output) {
       labs(title = "Significant Changes in Trends", y = "Search Interest", x = "Date") +
       theme_minimal()
   })
-  
   
   
   #Include a summary
