@@ -29,7 +29,7 @@ country_choices <- setNames(countries$iso2c, countries$country.name.en)
 # Define UI for application that draws a histogram
 
 ui <- fluidPage(
-  titlePanel("Google Trends Forecasting App"),
+  titlePanel("Search Trends Forecasting App"),
   
   sidebarLayout(
     sidebarPanel(
@@ -76,7 +76,7 @@ server <- function(input, output) {
         mutate(date = ymd(date)) %>%
         filter(date < Sys.Date() - 1)
     }, error = function(e) {
-      showNotification("Error retrieving data from Google Trends. Please try again later.", type = "error")
+      showNotification("Error retrieving data from Search Trends. Please try again later.", type = "error")
       NULL
     })
   })
@@ -147,7 +147,7 @@ server <- function(input, output) {
       scale_color_brewer(palette = 'Set1') +
       theme_minimal() +
       labs(x = NULL, y = "Relative Search Interest",
-           title = 'Google Trends: interest over time',
+           title = 'Search Trends: interest over time',
            caption = "Data from Google Trends")
   })
   
