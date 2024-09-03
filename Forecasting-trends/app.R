@@ -17,6 +17,7 @@ library(visNetwork)
 library(tidyr)
 library(stringr)
 
+#--------
 # Getting a list of country names and corresponding ISO 3166-1 alpha-2 codes
   countries <- countrycode::codelist %>%
     filter(!is.na(iso2c)) %>%  # Filter out entries without a country code
@@ -24,6 +25,20 @@ library(stringr)
 
 # Convert to a named vector for use in selectInput
 country_choices <- setNames(countries$iso2c, countries$country.name.en)
+
+# Vector for user-friendly time labels
+time_choices <- c(
+  "Last 1 Hour" = "now 1-H",
+  "Last 4 Hours" = "now 4-H",
+  "Last 1 Day" = "now 1-d",
+  "Last 7 Days" = "now 7-d",
+  "Last 1 Month" = "today 1-m",
+  "Last 3 Months" = "today 3-m",
+  "Last 12 Months" = "today 12-m",
+  "Last 5 Years" = "today+5-y",
+  "Since 2004" = "all"
+)
+#--------
 
 #UI
 # Define UI for application that draws a histogram
@@ -35,7 +50,7 @@ ui <- fluidPage(
     sidebarPanel(
       textInput("keywords", "Enter Keywords (comma-separated). Only first word will be used for forecasting:", "Lavender, Daffodil, Bluebell"),
       selectInput("geo", "Select Region:", choices = c(country_choices,"Worldwide"), selected = "GB"),
-      selectInput("time", "Select the Time Span:", choices = c("now 1-H", "now 4-H","now 1-d","now 7-d", "today 1-m", "today 3-m", "today 12-m", "today+5-y", "all"), selected = "today+5-y"), #we add the list for different periods of time
+      selectInput("time", "Select the Time Span:", choices = time_choices, selected = "today+5-y"), #we add the list for different periods of time
       # Add help text below the time span selection
       helpText("If you want to identify seasonality of the day of the week, select a time span maximum of 3 months."),
       sliderInput("forecast_period", "Forecast Period (Days):", min = 1, max = 730, value = 180),
@@ -47,7 +62,7 @@ ui <- fluidPage(
         tabPanel("Trends Plot", withSpinner(plotlyOutput("trendsPlot"))),
         tabPanel(
           "Forecast and Components",
-          withSpinner(plotOutput("forecastPlot", height = "400px")),"SEASONALITY",
+          withSpinner(plotlyOutput("forecastPlot", height = "400px")),"SEASONALITY",
           withSpinner(plotOutput("componentsPlot", height = "400px")),
           "This model is optimized for forecasting time series with seasonal patterns."
         ),
@@ -158,7 +173,7 @@ server <- function(input, output) {
   })
   
   # Plot forecast data
-  output$forecastPlot <- renderPlot({
+  output$forecastPlot <- renderPlotly({
     req(forecast_data())
     
     forecast_data() %>%
@@ -171,17 +186,19 @@ server <- function(input, output) {
                   alpha = 0.3) +
       theme_bw() +
       labs(x = NULL, y = "Relative Search Interest",
-           title = "Time Series Decomposition and Prediction using the Prophet Additive Models",
+           title = "Time Series Decomposition and Prediction using Additive Models",
            color = "Legend",
            fill = "Legend") +
       scale_fill_manual(values = c("Forecasted" = "green")) +
       scale_color_manual(values = c("Actual" = "black", "Forecast" = "blue")) +
-      annotate("text", x = max(forecast_data()$ds), y = min(forecast_data()$yhat_lower), 
+      annotate("text", x = max(forecast_data()$ds) - 100, y = min(forecast_data()$yhat_lower) + 5, 
                label = "www.abelhga.com", 
-               hjust = 1, vjust = -0.5, size = 4, colour = "black") +
+               hjust = 1, vjust = -0.5, size = 3.5, colour = "black") +  # Adjusted size and position
       guides(fill = guide_legend(order = 1),
-             color = guide_legend(order = 2))
+             color = guide_legend(order = 2)) +
+      theme(plot.margin = unit(c(1, 2, 1, 1), "cm"))  # Add right margin space
   })
+  
   
   
   # Plot forecast components
