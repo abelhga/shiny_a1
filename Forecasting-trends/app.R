@@ -45,8 +45,7 @@ ui <- fluidPage(
         tabPanel("Trends Plot", withSpinner(plotlyOutput("trendsPlot"))),
         tabPanel("Forecast Plot", withSpinner(plotOutput("forecastPlot")),"This model is optimized for forecasting time series with seasonal patterns."),
         tabPanel("Model Components", withSpinner(plotOutput("componentsPlot"))),
-        tabPanel("Anomaly Detection", withSpinner(plotOutput("anomalyDetection"))),
-        tabPanel("Network Visualization", withSpinner(visNetworkOutput("networkPlot")))
+        tabPanel("Anomaly Detection", withSpinner(plotOutput("anomalyDetection")))
       ),
       textOutput("trendText"),
       textOutput("summaryStats")
