@@ -106,8 +106,9 @@ ui <- fluidPage(
       textInput("keyword", "Enter Keyword:", value = "where can I buy"),
       selectInput("method", "Suggestion Method:", choices = c("By Vector" = "by_vector","Alphabetically" = "alphabetically")),
       selectInput("level", "Suggestion Level:", choices = 1:3, selected = 2),
-      selectInput("stopwords_lang", "Stopwords Language:", 
-                  choices = c("English" = "en", "Spanish" = "es", "French" = "fr", "German" = "de")),
+      selectInput("lang", "Language:", 
+                  choices = c("English" = "en", "Spanish" = "es", "French" = "fr", "German" = "de"," " = "")),
+      checkboxInput("remove_stopwords", "Remove Stopwords", value = TRUE),  # Add checkbox for stopwords
       selectInput("solver", "Select Solver:", choices = c("barnesHut", "forceAtlas2Based","repulsion")),
       
       helpText("Suggestion Methods:",
@@ -137,18 +138,24 @@ server <- function(input, output, session) {
   observeEvent(input$update, {
     keyword <- input$keyword
     level <- as.numeric(input$level)
-    stopwords_lang <- input$stopwords_lang
+    lang <- input$lang
     method <- input$method
     solver <- input$solver  # Get the selected solver
     
     # Use the selected language for suggestions
-    suggested_queries <- suggestGSQueries(keyword, stopwords_lang, level, method)
+    suggested_queries <- suggestGSQueries(keyword, lang, level, method)
     
     # Split the keyword into individual words
     palabras_keyword <- unlist(strsplit(tolower(keyword), " "))
     
     # Create a list of words to ignore including stopwords and the keyword's words
-    palabras_a_ignorar <- c(palabras_keyword, stopwords(stopwords_lang))
+    #Checking if the user wants to remove stopwords
+    if (input$remove_stopwords && lang != "") {
+      palabras_a_ignorar <- c(palabras_keyword, stopwords(lang))
+    } else {
+      palabras_a_ignorar <- palabras_keyword  # Only remove the keyword words, not stopwords
+    }
+    
     
     palabras_list <- lapply(suggested_queries, function(x) {
       palabras <- strsplit(tolower(x), " ")[[1]]
