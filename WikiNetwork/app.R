@@ -10,31 +10,39 @@ library(visNetwork)
 library(shinycssloaders)
 library(jsonlite)
 
-# Function to get Wikipedia Suggest queries
-getWikiQueries <- function(search_query) {
+# Lista de Marketplaces con sus códigos y IDs
+marketplace_list <- data.frame(
+  Marketplace = c("Brazil", "Canada", "Mexico", "United States", "Germany", "United Kingdom", "France", "Spain", "Italy"),
+  MarketID = c("A2Q3Y263D00KWC", "A2EUQ1WTGCTBG2", "A1AM78C64UM0Y8", "ATVPDKIKX0DER", 
+               "A1PA6795UKMFR9", "A1F83G8C2ARO7P", "A13V1IB3VIYZZH", "A1RKKUPIHCS9HS", "APJ6JRA9NG5V4"),
+  stringsAsFactors = FALSE
+)
+
+# Function to get Amazon Suggest queries
+getAmazonQueries <- function(search_query, market_id) {
   query <- URLencode(search_query)
-  url <- paste0("https://en.wikipedia.org/w/api.php?action=opensearch&search=", query, "&limit=10&format=json")
+  url <- paste0("https://completion.amazon.com/api/2017/suggestions?mid=", market_id, "&alias=aps&prefix=", query)
   req <- GET(url)
   json_content <- content(req, as = "text")
   data <- fromJSON(json_content)
-  suggestions <- data[[2]] # The second element contains the suggestions
+  suggestions <- data$suggestions$value
   return(suggestions)
 }
 
 # Function to handle suggestions based on level and method (alphabetically or by vector)
-suggestWikiQueries <- function (search_query, level, method = "alphabetically") {
+suggestAmazonQueries <- function (search_query, market_id, level, method = "alphabetically") {
   if (method == "alphabetically") {
     # Default alphabetical suggestion method
-    all_suggestion <- getWikiQueries(search_query)
+    all_suggestion <- getAmazonQueries(search_query, market_id)
     if (level > 1) {
       for (l in letters) {
-        local_suggestion <- getWikiQueries(paste0(search_query, " ", l))
+        local_suggestion <- getAmazonQueries(paste0(search_query, " ", l), market_id)
         all_suggestion <- c(all_suggestion, local_suggestion)
       }
       if (level > 2) {
         for (l1 in letters) {
           for (l2 in letters) {
-            local_suggestion <- getWikiQueries(paste0(search_query, " ", l1, l2))
+            local_suggestion <- getAmazonQueries(paste0(search_query, " ", l1, l2), market_id)
             all_suggestion <- c(all_suggestion, local_suggestion)
           }
         }
@@ -42,10 +50,10 @@ suggestWikiQueries <- function (search_query, level, method = "alphabetically") 
     }
   } else if (method == "by_vector") {
     # By vector suggestion method
-    all_suggestion <- getWikiQueries(search_query)
+    all_suggestion <- getAmazonQueries(search_query, market_id)
     if (level > 1) {
       for (i in 2:level) {
-        all_suggestion <- unlist(lapply(all_suggestion, function(q) getWikiQueries(q)))
+        all_suggestion <- unlist(lapply(all_suggestion, function(q) getAmazonQueries(q, market_id)))
       }
     }
   }
@@ -98,22 +106,25 @@ ui <- fluidPage(
     "))
   ),
   
-  div(class = "title-panel", "Keyword Network Analysis for Wikipedia"),
+  div(class = "title-panel", "Keyword Network Analysis for Amazon"),
   
   sidebarLayout(
     sidebarPanel(
       class = "sidebar",
-      textInput("keyword", "Enter Keyword:", value = "madonna"),
-      selectInput("method", "Suggestion Method:", choices = c("By Vector" = "by_vector", "Alphabetically" = "alphabetically")),
+      textInput("keyword", "Enter Keyword:", value = "laptop"),
+      selectInput("method", "Suggestion Method:", choices = c("By Vector" = "by_vector","Alphabetically" = "alphabetically")),
       selectInput("level", "Suggestion Level:", choices = 1:3, selected = 2),
-      checkboxInput("remove_stopwords", "Remove Stopwords", value = TRUE),
-      selectInput("solver", "Select Solver:", choices = c("barnesHut", "forceAtlas2Based", "repulsion")),
+      selectInput("market", "Select Marketplace:", 
+                  choices = setNames(marketplace_list$MarketID, marketplace_list$Marketplace),selected = "ATVPDKIKX0DER"),
+      checkboxInput("remove_stopwords", "Remove Stopwords", value = FALSE),  # Add checkbox for stopwords
+      checkboxInput("remove_keyword_words", "Remove Keyword Words", value = TRUE), # Add checkbox for keyword removal
+      selectInput("solver", "Select Solver:", choices = c("barnesHut", "forceAtlas2Based","repulsion"),selected = "forceAtlas2Based"),
       
       actionButton("update", "Generate Network", class = "btn-update")
     ),
     mainPanel(
       class = "main-panel",
-      visNetworkOutput("networkPlot", width = "100%", height = "850px"), "These results are based on Wikipedia suggestions."
+      visNetworkOutput("networkPlot", width = "100%", height = "850px"), "These results are tailored to the selected market. Choose a different market for varying results."
     )
   )
 )
@@ -124,20 +135,25 @@ server <- function(input, output, session) {
   observeEvent(input$update, {
     keyword <- input$keyword
     level <- as.numeric(input$level)
+    market_id <- input$market
     method <- input$method
-    solver <- input$solver
+    solver <- input$solver  # Get the selected solver
     
-    # Use the selected suggestion method for Wikipedia
-    suggested_queries <- suggestWikiQueries(keyword, level, method)
+    # Use the selected market for suggestions
+    suggested_queries <- suggestAmazonQueries(keyword, market_id, level, method)
     
     # Split the keyword into individual words
     palabras_keyword <- unlist(strsplit(tolower(keyword), " "))
     
-    # Create a list of words to ignore, including stopwords if selected
+    # Create a list of words to ignore including stopwords and the keyword's words
+    palabras_a_ignorar <- c()
+    
     if (input$remove_stopwords) {
-      palabras_a_ignorar <- c(palabras_keyword, stopwords("en"))
-    } else {
-      palabras_a_ignorar <- palabras_keyword
+      palabras_a_ignorar <- c(palabras_a_ignorar, stopwords("en"))
+    }
+    
+    if (input$remove_keyword_words) {
+      palabras_a_ignorar <- c(palabras_a_ignorar, palabras_keyword)
     }
     
     palabras_list <- lapply(suggested_queries, function(x) {
