@@ -10,8 +10,6 @@ library(lubridate)
 library(countrycode)
 library(shinycssloaders) #to give visual feedback when data is being loaded.
 library(plotly)
-
-
 library(igraph)
 library(visNetwork)
 library(tidyr)
