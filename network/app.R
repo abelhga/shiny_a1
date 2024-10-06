@@ -109,7 +109,7 @@ ui <- fluidPage(
       selectInput("lang", "Language:", 
                   choices = c("English" = "en", "Spanish" = "es", "French" = "fr", "German" = "de"," " = "")),
       checkboxInput("remove_stopwords", "Remove Stopwords", value = TRUE),  # Add checkbox for stopwords
-      selectInput("solver", "Select Solver:", choices = c("barnesHut", "forceAtlas2Based","repulsion")),
+      selectInput("solver", "Select Solver:", choices = c("forceAtlas2Based","barnesHut","repulsion")),
       
       helpText("Suggestion Methods:",
                tags$ul(

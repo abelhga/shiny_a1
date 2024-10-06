@@ -17,6 +17,8 @@ library(visNetwork)
 library(tidyr)
 library(stringr)
 
+
+
 #--------
 # Getting a list of country names and corresponding ISO 3166-1 alpha-2 codes
   countries <- countrycode::codelist %>%
