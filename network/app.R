@@ -1,3 +1,5 @@
+# This is a Shiny web application made by Abel Hernández García // hi@abelhga.com // www.abelhga.com
+
 library(shiny)
 library(tidyr)
 library(dplyr)
@@ -10,15 +12,29 @@ library(visNetwork)
 library(shinycssloaders)
 library(XML)
 
+##SEMANTIC GOOGLE
+
 # Function to get Google Suggest queries
 getGSQueries <- function (search_query, code_lang) {
   query <- URLencode(search_query)
   url <- paste0("http://suggestqueries.google.com/complete/search?output=toolbar&hl=", code_lang, "&q=", query)
   req <- GET(url)
-  xml <- content(req)
-  doc <- xmlParse(xml)
-  list <- xpathSApply(doc, "//CompleteSuggestion/suggestion", xmlGetAttr, 'data')
-  return(list)
+  xml_content <- content(req, as = "text", encoding = "UTF-8")
+  
+  # Check if XML content is valid
+  if (nchar(xml_content) > 0) {
+    doc <- tryCatch({
+      xmlParse(xml_content, encoding = "UTF-8")
+    }, error = function(e) {
+      return(NULL)
+    })
+    
+    if (!is.null(doc)) {
+      list <- xpathSApply(doc, "//CompleteSuggestion/suggestion", xmlGetAttr, 'data')
+      return(list)
+    }
+  }
+  return(character(0))
 }
 
 # Function to handle suggestions based on level and method (alphabetically or by vector)
@@ -57,45 +73,7 @@ ui <- fluidPage(
   
   # Custom CSS for better styling
   tags$head(
-    tags$style(HTML("
-      body {
-        background-color: #f5f5f5;
-      }
-      .container-fluid {
-        padding: 20px;
-      }
-      .title-panel {
-        text-align: center;
-        font-size: 28px;
-        font-weight: bold;
-        color: #333;
-        margin-bottom: 20px;
-      }
-      .sidebar {
-        background-color: #ffffff;
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
-      }
-      .main-panel {
-        padding: 20px;
-      }
-      .btn-update {
-        width: 100%;
-        background-color: #007bff;
-        color: white;
-        font-size: 16px;
-        padding: 10px;
-        border-radius: 8px;
-        border: none;
-      }
-      .btn-update:hover {
-        background-color: #0056b3;
-      }
-      #networkPlot {
-        height: 900px;
-      }
-    "))
+    tags$style(HTML("body {background-color: #f5f5f5;} .container-fluid {padding: 20px;} .title-panel {text-align: center; font-size: 28px; font-weight: bold; color: #333; margin-bottom: 20px;} .sidebar {background-color: #ffffff; border-radius: 8px; padding: 20px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);} .main-panel {padding: 20px;} .btn-update {width: 100%; background-color: #007bff; color: white; font-size: 16px; padding: 10px; border-radius: 8px; border: none;} .btn-update:hover {background-color: #0056b3;} #networkPlot {height: 900px;}"))
   ),
   
   div(class = "title-panel", "Keyword Network Analysis"),
@@ -103,10 +81,10 @@ ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       class = "sidebar",
-      textInput("keyword", "Enter Keyword:", value = "where can I buy"),
+      textInput("keyword", "Enter Keyword:", value = "padel"),
       selectInput("method", "Suggestion Method:", choices = c("By Vector" = "by_vector","Alphabetically" = "alphabetically")),
       selectInput("level", "Suggestion Level:", choices = 1:3, selected = 2),
-      selectInput("lang", "Language:", 
+      selectInput("lang", "Language:",
                   choices = c("English" = "en", "Spanish" = "es", "French" = "fr", "German" = "de"," " = "")),
       checkboxInput("remove_stopwords", "Remove Stopwords", value = TRUE),  # Add checkbox for stopwords
       selectInput("solver", "Select Solver:", choices = c("forceAtlas2Based","barnesHut","repulsion")),
@@ -135,12 +113,11 @@ ui <- fluidPage(
 # Server
 server <- function(input, output, session) {
   
-  observeEvent(input$update, {
+  data_reactive <- eventReactive(input$update, {
     keyword <- input$keyword
     level <- as.numeric(input$level)
     lang <- input$lang
     method <- input$method
-    solver <- input$solver  # Get the selected solver
     
     # Use the selected language for suggestions
     suggested_queries <- suggestGSQueries(keyword, lang, level, method)
@@ -149,13 +126,12 @@ server <- function(input, output, session) {
     palabras_keyword <- unlist(strsplit(tolower(keyword), " "))
     
     # Create a list of words to ignore including stopwords and the keyword's words
-    #Checking if the user wants to remove stopwords
+    # Checking if the user wants to remove stopwords
     if (input$remove_stopwords && lang != "") {
       palabras_a_ignorar <- c(palabras_keyword, stopwords(lang))
     } else {
       palabras_a_ignorar <- palabras_keyword  # Only remove the keyword words, not stopwords
     }
-    
     
     palabras_list <- lapply(suggested_queries, function(x) {
       palabras <- strsplit(tolower(x), " ")[[1]]
@@ -187,22 +163,29 @@ server <- function(input, output, session) {
     comunidades <- cluster_louvain(red_semantica)
     nodos$group <- membership(comunidades)
     
-    output$networkPlot <- renderVisNetwork({
-      visNetwork(nodos, aristas) %>%
-        visPhysics(solver = solver, stabilization = FALSE) %>% #TRUE, FALSE or number of maximum iteractions
-        visInteraction(dragNodes = TRUE) %>%
-        visEvents(stabilizationIterationsDone = "function () {this.setOptions( { physics: false } );}") %>%
-        visNodes(
-          shape = "dot",
-          scaling = list(min = 10, max = 30, label = list(enabled = TRUE, min = 30, max = 50)),
-          font = list(size = 30)
-        ) %>%
-        visEdges(arrows = "to") %>%
-        visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE) %>%
-        visLayout(randomSeed = 11)
-    })
+    list(nodos = nodos, aristas = aristas)
+  })
+  
+  output$networkPlot <- renderVisNetwork({
+    data <- data_reactive()
+    nodos <- data$nodos
+    aristas <- data$aristas
+    solver <- input$solver  # Get the selected solver
+    
+    visNetwork(nodos, aristas) %>%
+      visPhysics(solver = solver, stabilization = FALSE) %>% # TRUE, FALSE or number of maximum iterations
+      visInteraction(dragNodes = TRUE) %>%
+      visEvents(stabilizationIterationsDone = "function () {this.setOptions( { physics: false } );}") %>%
+      visNodes(
+        shape = "dot",
+        scaling = list(min = 10, max = 30, label = list(enabled = TRUE, min = 30, max = 50)),
+        font = list(size = 30)
+      ) %>%
+      visEdges(arrows = "to") %>%
+      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE) %>%
+      visLayout(randomSeed = 11)
   })
 }
 
-# Run the application 
+# Run the application
 shinyApp(ui = ui, server = server)
