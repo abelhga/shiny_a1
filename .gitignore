@@ -49,3 +49,5 @@ po/*~
 rsconnect/
 
 raw_data/
+# macOS folder metadata
+.DS_Store
