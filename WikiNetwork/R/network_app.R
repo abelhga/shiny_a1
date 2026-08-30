@@ -56,17 +56,26 @@ keyword_network_ui <- function(config) {
 
       shiny::selectInput("method", "Expansion method",
                          choices = c("By vector (recursive)" = "by_vector",
-                                     "Alphabetically (a-z)" = "alphabetically")),
+                                     "Alphabetically (a-z)" = "alphabetically",
+                                     "By questions & prepositions" = "by_questions")),
 
-      shiny::sliderInput("level", "Depth", min = 1, max = 3, value = 2, step = 1),
+      shiny::conditionalPanel(
+        "input.method != 'by_questions'",
+        shiny::sliderInput("level", "Depth", min = 1, max = 4, value = 2, step = 1)
+      ),
 
       shiny::numericInput("max_requests", "Request budget",
-                          value = 60, min = 1, max = 800, step = 10),
+                          value = 60, min = 1, max = 5000, step = 10),
       shiny::uiOutput("request_estimate"),
 
       shiny::actionButton("generate", "Generate network",
                           class = "btn btn-primary w-100",
                           icon = shiny::icon("diagram-project")),
+      shiny::div(
+        class = "text-end mt-1",
+        shiny::actionLink("clear_cache", "Clear cached lookups",
+                          class = "small text-muted")
+      ),
 
       shiny::hr(),
 
@@ -131,9 +140,11 @@ keyword_network_ui <- function(config) {
         "Terms",
         icon = shiny::icon("table"),
         shiny::div(
-          class = "d-flex gap-2 mb-2",
+          class = "d-flex gap-2 mb-2 flex-wrap",
           shiny::downloadButton("dl_terms", "Terms CSV", class = "btn-sm btn-outline-secondary"),
-          shiny::downloadButton("dl_edges", "Links CSV", class = "btn-sm btn-outline-secondary")
+          shiny::downloadButton("dl_edges", "Links CSV", class = "btn-sm btn-outline-secondary"),
+          shiny::downloadButton("dl_graphml", "Graph (GraphML, for Gephi)",
+                                class = "btn-sm btn-outline-secondary")
         ),
         DT::DTOutput("terms_table")
       ),
@@ -182,8 +193,13 @@ keyword_network_server <- function(config) {
     }, ignoreInit = TRUE)
 
     # --- budget preview -----------------------------------------------------
+    scope_modifiers <- shiny::reactive({
+      get_question_modifiers(config$scope_lang(input$scope))
+    })
+
     output$request_estimate <- shiny::renderUI({
-      wanted <- estimate_requests(input$level, input$method)
+      wanted <- estimate_requests(input$level, input$method,
+                                  modifiers = length(scope_modifiers()))
       budget <- as.integer(input$max_requests %||% 60L)
       actual <- min(wanted, budget)
       shiny::div(
@@ -196,6 +212,12 @@ keyword_network_server <- function(config) {
                       "Raise the budget for a fuller picture, or lower the depth.")
         }
       )
+    })
+
+    shiny::observeEvent(input$clear_cache, {
+      clear_suggest_cache()
+      shiny::showNotification("Cached lookups cleared - the next crawl re-fetches everything.",
+                              type = "message")
     })
 
     # --- harvesting ---------------------------------------------------------
@@ -217,6 +239,7 @@ keyword_network_server <- function(config) {
             fetcher = function(query) config$fetcher(query, input$scope),
             level = input$level,
             method = input$method,
+            modifiers = scope_modifiers(),
             max_requests = budget,
             progress = function(done, total, label) {
               shiny::setProgress(value = done / max(total, 1),
@@ -407,7 +430,7 @@ keyword_network_server <- function(config) {
       top <- top[order(top[[metric]]), , drop = FALSE]
       colours <- NETWORK_PALETTE[((top$community - 1L) %% length(NETWORK_PALETTE)) + 1L]
 
-      plotly::layout(
+      figure <- plotly::layout(
         plotly::plot_ly(
           x = top[[metric]],
           y = factor(top$term, levels = top$term),
@@ -421,6 +444,7 @@ keyword_network_server <- function(config) {
         yaxis = list(title = ""),
         margin = list(l = 10, r = 10, t = 10, b = 40)
       )
+      plotly_theme(figure, isTRUE(input$dark_mode))
     })
 
     output$cluster_plot <- plotly::renderPlotly({
@@ -440,7 +464,7 @@ keyword_network_server <- function(config) {
 
       colours <- NETWORK_PALETTE[((sizes$community - 1L) %% length(NETWORK_PALETTE)) + 1L]
 
-      plotly::layout(
+      figure <- plotly::layout(
         plotly::plot_ly(
           x = sizes$terms,
           y = factor(paste("Cluster", sizes$community),
@@ -453,6 +477,7 @@ keyword_network_server <- function(config) {
         yaxis = list(title = ""),
         margin = list(l = 10, r = 10, t = 10, b = 40)
       )
+      plotly_theme(figure, isTRUE(input$dark_mode))
     })
 
     # --- KPIs ---------------------------------------------------------------
@@ -495,6 +520,13 @@ keyword_network_server <- function(config) {
       content = function(file) {
         shiny::req(scored())
         utils::write.csv(scored()$edges, file, row.names = FALSE)
+      }
+    )
+    output$dl_graphml <- shiny::downloadHandler(
+      filename = function() sub("[.]csv$", ".graphml", stamp("graph")),
+      content = function(file) {
+        shiny::req(scored())
+        igraph::write_graph(scored()$graph, file, format = "graphml")
       }
     )
     output$dl_suggestions <- shiny::downloadHandler(

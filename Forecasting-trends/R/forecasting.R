@@ -62,12 +62,36 @@ drop_incomplete_tail <- function(df, step_seconds) {
   df
 }
 
+#' Saturation ceiling for logistic growth.
+#'
+#' Google Trends interest is a relative 0-100 index, so a logistic trend has a
+#' natural ceiling. Prophet needs cap strictly above every observation, hence
+#' the 5% headroom over 100 (or over the observed maximum, if a series ever
+#' exceeded the nominal scale).
+logistic_cap <- function(y) 1.05 * max(100, max(y, na.rm = TRUE))
+
+#' Add the cap/floor columns Prophet's logistic growth requires.
+#'
+#' @param df data frame with at least ds (history, or a future frame).
+#' @param growth the growth setting; anything but "logistic" is a no-op.
+#' @param reference_y the training series the cap is derived from, so the
+#'   frame being predicted uses the same ceiling the model was fit with.
+with_capacity <- function(df, growth, reference_y) {
+  if (identical(growth, "logistic")) {
+    df$cap <- logistic_cap(reference_y)
+    df$floor <- 0
+  }
+  df
+}
+
 #' Fit Prophet with the options the UI exposes.
 fit_prophet_model <- function(history,
                               growth = "linear",
                               seasonality_mode = "additive",
                               changepoint_prior_scale = 0.05,
                               holidays_country = NULL) {
+
+  history <- with_capacity(history, growth, history$y)
 
   model <- prophet::prophet(
     growth = growth,
@@ -106,7 +130,9 @@ prophet_backtest <- function(history, model_args = list(), min_points = 30L) {
   )
   if (is.null(fitted)) return(NULL)
 
-  predicted <- tryCatch(stats::predict(fitted, test[, "ds", drop = FALSE]),
+  growth <- if (is.null(model_args$growth)) "linear" else model_args$growth
+  test_frame <- with_capacity(test[, "ds", drop = FALSE], growth, train$y)
+  predicted <- tryCatch(stats::predict(fitted, test_frame),
                         error = function(e) NULL)
   if (is.null(predicted)) return(NULL)
 

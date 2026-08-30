@@ -45,6 +45,9 @@ ui <- bslib::page_sidebar(
     shiny::selectInput("time", "Time span", choices = TIME_CHOICES, selected = "today+5-y"),
     shiny::helpText("Google returns hourly data for short spans and weekly data for
                      long ones; the app adapts the forecast to whichever it gets."),
+    shiny::checkboxInput("fetch_related", "Also fetch related queries", FALSE),
+    shiny::helpText("Adds a Related queries tab (top and rising searches). It is a
+                     second, heavier request, so it hits Google's rate limit sooner."),
 
     shiny::actionButton("fetch", "Fetch trends", class = "btn btn-primary w-100",
                         icon = shiny::icon("cloud-arrow-down")),
@@ -60,7 +63,11 @@ ui <- bslib::page_sidebar(
         shiny::sliderInput("horizon", "Forecast horizon (periods)",
                            min = 1, max = 730, value = 90, step = 1),
         shiny::selectInput("growth", "Trend",
-                           choices = c("Linear" = "linear", "Flat" = "flat")),
+                           choices = c("Linear" = "linear",
+                                       "Logistic (saturates near 100)" = "logistic",
+                                       "Flat" = "flat")),
+        shiny::helpText("Logistic respects the 0-100 ceiling of the Trends index,
+                         so a rising forecast levels off instead of leaving the scale."),
         shiny::selectInput("seasonality_mode", "Seasonality",
                            choices = c("Additive" = "additive",
                                        "Multiplicative" = "multiplicative")),
@@ -143,6 +150,18 @@ ui <- bslib::page_sidebar(
     ),
 
     bslib::nav_panel(
+      "Related queries",
+      icon = shiny::icon("magnifying-glass-plus"),
+      shiny::uiOutput("related_note"),
+      shiny::div(
+        class = "d-flex gap-2 mb-2",
+        shiny::downloadButton("dl_related", "Related CSV",
+                              class = "btn-sm btn-outline-secondary")
+      ),
+      DT::DTOutput("related_table")
+    ),
+
+    bslib::nav_panel(
       "Data",
       icon = shiny::icon("table"),
       shiny::div(
@@ -173,8 +192,7 @@ server <- function(input, output, session) {
 
   requested_keywords <- shiny::reactive({
     parts <- trimws(unlist(strsplit(input$keywords %||% "", ",")))
-    parts <- unique(parts[nzchar(parts)])
-    utils::head(parts, MAX_KEYWORDS)
+    unique(parts[nzchar(parts)])
   })
 
   # --- data ----------------------------------------------------------------
@@ -186,10 +204,22 @@ server <- function(input, output, session) {
       return(NULL)
     }
 
+    # Five terms per request is Google Trends' own comparison limit; say so
+    # instead of silently dropping what the user typed.
+    if (length(keywords) > MAX_KEYWORDS) {
+      shiny::showNotification(
+        sprintf("Google Trends compares at most %d terms per request; using the first %d (%s).",
+                MAX_KEYWORDS, MAX_KEYWORDS,
+                paste(utils::head(keywords, MAX_KEYWORDS), collapse = ", ")),
+        type = "warning", duration = 8
+      )
+      keywords <- utils::head(keywords, MAX_KEYWORDS)
+    }
+
     result <- shiny::withProgress(message = "Asking Google Trends", value = 0.4, {
       tryCatch(
         gtrendsR::gtrends(keyword = keywords, geo = input$geo, time = input$time,
-                          tz = 0, onlyInterest = TRUE),
+                          tz = 0, onlyInterest = !isTRUE(input$fetch_related)),
         error = function(e) e
       )
     })
@@ -233,7 +263,22 @@ server <- function(input, output, session) {
       ungroup()
 
     attr(interest, "step_seconds") <- step
+    attr(interest, "related") <- result$related_queries
     interest
+  })
+
+  related_queries <- shiny::reactive({
+    data <- trends()
+    if (is.null(data)) return(NULL)
+    related <- attr(data, "related")
+    if (is.null(related) || !nrow(related)) return(NULL)
+    data.frame(
+      keyword = as.character(related$keyword),
+      type    = as.character(related$related_queries),
+      query   = as.character(related$value),
+      value   = as.character(related$subject),
+      stringsAsFactors = FALSE
+    )
   })
 
   # Point the series picker and the horizon slider at what actually came back.
@@ -295,6 +340,7 @@ server <- function(input, output, session) {
       freq = step_seconds(),
       include_history = TRUE
     )
+    future <- with_capacity(future, input$growth, history()$y)
     predicted <- stats::predict(fitted, future)
     predicted$ds <- as.POSIXct(predicted$ds, tz = "UTC")
     predicted
@@ -523,6 +569,31 @@ server <- function(input, output, session) {
     )
   })
 
+  output$related_note <- shiny::renderUI({
+    if (!is.null(related_queries())) return(NULL)
+    note <- if (is.null(trends())) {
+      "Fetch trends first."
+    } else if (!isTRUE(input$fetch_related)) {
+      "Turn on \"Also fetch related queries\" in the sidebar and fetch again to fill this tab."
+    } else {
+      "Google Trends returned no related queries for this combination."
+    }
+    shiny::div(class = "ai-empty mb-2", note)
+  })
+
+  output$related_table <- DT::renderDT({
+    related <- related_queries()
+    shiny::req(related)
+    DT::datatable(
+      related,
+      rownames = FALSE, filter = "top",
+      colnames = c("Keyword", "Type", "Related query", "Interest"),
+      options = list(pageLength = 15, scrollX = TRUE),
+      caption = paste("\"Top\" queries are the most searched alongside each keyword;",
+                      "\"rising\" ones grew fastest (\"Breakout\" means >5000%).")
+    )
+  })
+
   output$data_table <- DT::renderDT({
     predicted <- forecast()
     past <- history()
@@ -568,6 +639,13 @@ server <- function(input, output, session) {
         forecast()[, c("ds", "yhat", "yhat_lower", "yhat_upper", "trend")],
         file, row.names = FALSE
       )
+    }
+  )
+  output$dl_related <- shiny::downloadHandler(
+    filename = function() stamp("related-queries"),
+    content = function(file) {
+      shiny::req(related_queries())
+      utils::write.csv(related_queries(), file, row.names = FALSE)
     }
   )
 
@@ -629,6 +707,22 @@ server <- function(input, output, session) {
                  paste(sprintf("%s (%.0f, z %.1f)", format(top$ds, "%Y-%m-%d"),
                                top$y, top$score), collapse = "; "), ".")
         } else "No observations were flagged as unusual.",
+        {
+          related <- related_queries()
+          if (!is.null(related)) {
+            mine <- related[related$keyword == input$series, , drop = FALSE]
+            if (nrow(mine)) {
+              rising <- utils::head(mine$query[mine$type == "rising"], 10)
+              top <- utils::head(mine$query[mine$type == "top"], 10)
+              paste0(
+                "Related searches for this term - top: ",
+                if (length(top)) paste(top, collapse = ", ") else "none",
+                "; rising: ",
+                if (length(rising)) paste(rising, collapse = ", ") else "none", "."
+              )
+            } else "No related queries came back for this term."
+          } else "Related queries were not fetched."
+        },
         sep = "\n"
       )
     }),

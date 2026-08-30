@@ -23,6 +23,14 @@ app_theme <- function(dark = FALSE) {
   bslib::bs_theme(
     version = 5,
     bootswatch = if (isTRUE(dark)) "darkly" else "flatly",
+    # Match the accent used across the charts and network palette, so buttons,
+    # links, tabs and plots read as one design instead of two.
+    primary = "#4C78A8",
+    success = "#54A24B",
+    danger  = "#E45756",
+    warning = "#F58518",
+    "border-radius" = "0.6rem",
+    "card-border-radius" = "0.85rem",
     base_font = bslib::font_collection(
       bslib::font_google("Inter", local = FALSE), "system-ui", "sans-serif"
     )
@@ -37,20 +45,38 @@ app_styles <- function() {
                    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
     .metric-card { background: var(--bs-body-bg, #fff);
                    border: 1px solid var(--bs-border-color, #dee2e6);
-                   border-radius: .75rem; padding: .75rem 1rem; }
-    .metric-value { font-size: 1.5rem; font-weight: 700; line-height: 1.15; }
+                   border-radius: .75rem; padding: .75rem 1rem;
+                   border-top: 3px solid var(--bs-primary, #4C78A8);
+                   box-shadow: 0 1px 2px rgba(16, 24, 40, .06);
+                   transition: transform .15s ease, box-shadow .15s ease; }
+    .metric-card:hover { transform: translateY(-2px);
+                         box-shadow: 0 6px 16px rgba(16, 24, 40, .14); }
+    .metric-value { font-size: 1.5rem; font-weight: 700; line-height: 1.15;
+                    font-variant-numeric: tabular-nums; }
     .metric-label { font-size: .72rem; text-transform: uppercase;
                     letter-spacing: .06em; color: var(--bs-secondary-color, #6c757d); }
     .metric-hint { font-size: .75rem; color: var(--bs-secondary-color, #6c757d); }
+    .card { box-shadow: 0 1px 3px rgba(16, 24, 40, .07); }
+    .nav-tabs .nav-link { border-top-left-radius: .6rem;
+                          border-top-right-radius: .6rem; }
+    .nav-tabs .nav-link.active { font-weight: 600; }
+    .accordion-button { font-weight: 600; font-size: .9rem; }
+    .btn { transition: transform .1s ease; }
+    .btn-primary:active { transform: scale(.985); }
+    .dataTable { font-size: .9rem; }
     .ai-panel { display: flex; flex-direction: column; gap: .6rem; }
     .ai-controls { display: flex; gap: .75rem; align-items: flex-end; flex-wrap: wrap; }
     .ai-controls .form-group,
     .ai-controls .shiny-input-container { margin-bottom: 0; min-width: 190px; }
     .ai-run { white-space: nowrap; }
+    .ai-panel > .shiny-input-container { margin-bottom: 0; }
     .ai-empty, .ai-error, .ai-answer { border-radius: .75rem; padding: .85rem 1rem; }
-    .ai-empty { background: rgba(76, 120, 168, .10); font-size: .9rem; }
-    .ai-error { background: rgba(228, 87, 86, .14); font-size: .9rem; }
-    .ai-answer { background: rgba(84, 162, 75, .10); }
+    .ai-empty { background: rgba(76, 120, 168, .10); font-size: .9rem;
+                border-left: 3px solid rgba(76, 120, 168, .55); }
+    .ai-error { background: rgba(228, 87, 86, .14); font-size: .9rem;
+                border-left: 3px solid rgba(228, 87, 86, .6); }
+    .ai-answer { background: rgba(84, 162, 75, .10);
+                 border-left: 3px solid rgba(84, 162, 75, .55); }
     .ai-answer > :last-child { margin-bottom: 0; }
     .status-note { font-size: .85rem; color: var(--bs-secondary-color, #6c757d); }
     .vis-network { outline: none; }

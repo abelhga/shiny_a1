@@ -200,6 +200,10 @@ aiInsightsUI <- function(id, label = "Ask the model") {
       shiny::actionButton(ns("run"), label, class = "btn btn-primary ai-run",
                           icon = shiny::icon("wand-magic-sparkles"))
     ),
+    shiny::textInput(ns("focus"), NULL, "",
+                     placeholder = paste("Optional: a question or angle to focus on,",
+                                         "e.g. \"which cluster should I target first?\""),
+                     width = "100%"),
     shiny::uiOutput(ns("answer"))
   )
 }
@@ -223,9 +227,20 @@ aiInsightsServer <- function(id, context,
         return()
       }
 
+      focus <- trimws(input$focus %||% "")
+      user_prompt <- paste(briefing, collapse = "\n")
+      if (nzchar(focus)) {
+        user_prompt <- paste0(
+          user_prompt,
+          "\n\nThe user specifically asks: \"", focus, "\". Address this",
+          " question directly as part of the commentary, still using only the",
+          " data in the briefing."
+        )
+      }
+
       shiny::withProgress(message = "Asking OpenAI…", value = 0.4, {
         result(openai_complete(
-          user_prompt       = paste(briefing, collapse = "\n"),
+          user_prompt       = user_prompt,
           system_prompt     = system_prompt,
           model             = input$model,
           effort            = input$effort,

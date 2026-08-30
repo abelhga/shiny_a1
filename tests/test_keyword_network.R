@@ -39,7 +39,24 @@ cat("  ok - network_frames\n")
 stopifnot(estimate_requests(1, "alphabetically") == 1)
 stopifnot(estimate_requests(2, "alphabetically") == 27)
 stopifnot(estimate_requests(3, "alphabetically") == 703)
+stopifnot(estimate_requests(4, "alphabetically") == 18279)
+stopifnot(estimate_requests(1, "by_questions", modifiers = 10) == 21)
 cat("  ok - estimate_requests\n")
+
+# Sizing by betweenness must produce different node sizes (the old pmax(x, 1)
+# flattened the 0..1 metric to a constant, so every node drew the same size).
+chain <- build_cooccurrence(c("alpha beta", "beta gamma", "gamma delta",
+                              "delta epsilon", "epsilon zeta"))
+fb <- network_frames(chain, size_by = "betweenness")
+stopifnot(length(unique(fb$nodes$value)) > 1,
+          all(fb$nodes$value >= 1), all(fb$nodes$value <= 100))
+cat("  ok - betweenness sizing varies across nodes\n")
+
+# Question modifiers: language-aware with an English fallback.
+stopifnot(length(get_question_modifiers("es")) > 5,
+          identical(get_question_modifiers("zz"), get_question_modifiers("en")),
+          identical(get_question_modifiers("pt-BR"), unique(QUESTION_MODIFIERS$pt)))
+cat("  ok - question modifiers per language\n")
 
 # Harvesting: budget respected, failures counted, results cached.
 calls <- 0L
@@ -62,6 +79,23 @@ r4 <- expand_suggestions("shoe", function(q) paste(q, c("x","y")), level = 3,
                          method = "by_vector", max_requests = 20, pause = 0)
 stopifnot(r4$requests <= 20)
 cat("  ok - by_vector respects the budget\n")
+
+# Depth 4 alphabetical crawls now exist; the budget still caps them.
+clear_suggest_cache()
+r5 <- expand_suggestions("shoe", function(q) paste(q, "deep"), level = 4,
+                         method = "alphabetically", max_requests = 30, pause = 0)
+stopifnot(r5$requests == 30, r5$truncated)
+cat("  ok - depth-4 alphabetical crawl respects the budget\n")
+
+# By questions: the seed is paired with each modifier on both sides.
+clear_suggest_cache()
+seen <- character(0)
+r6 <- expand_suggestions("shoe", function(q) { seen <<- c(seen, q); paste(q, "s") },
+                         method = "by_questions", modifiers = c("how", "for"),
+                         max_requests = 100, pause = 0)
+stopifnot(setequal(seen, c("shoe", "how shoe", "for shoe", "shoe how", "shoe for")),
+          r6$requests == 5, !r6$truncated)
+cat("  ok - by_questions pairs the seed with its modifiers\n")
 
 stopifnot(suggest_solver(500) == "barnesHut", suggest_solver(200) == "forceAtlas2Based",
           suggest_solver(50) == "repulsion")
