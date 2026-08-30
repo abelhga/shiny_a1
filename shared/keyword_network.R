@@ -368,9 +368,9 @@ render_keyword_network <- function(frames,
   if (is.null(frames) || !nrow(frames$nodes)) return(NULL)
 
   n_nodes <- nrow(frames$nodes)
-  font_colour   <- if (dark) "#e6edf3" else "#1b1f24"
-  stroke_colour <- if (dark) "#0d1117" else "#ffffff"
-  edge_colour   <- if (dark) "#3d444d" else "#c9d1d9"
+  font_colour   <- if (dark) "#e3e9e5" else "#10231f"
+  stroke_colour <- if (dark) "#0c1512" else "#ffffff"
+  edge_colour   <- if (dark) "#26332e" else "#cdd6d0"
 
   # Tuning for the chosen solver only. visPhysics() means to reject more than
   # one solver block at a time (its own guard misfires on lists, so passing
@@ -404,7 +404,7 @@ render_keyword_network <- function(frames,
       # Undirected co-occurrence: "A appears next to B" is the same fact as
       # "B appears next to A", so there are no arrowheads.
       smooth = list(enabled = TRUE, type = "continuous"),
-      color = list(color = edge_colour, highlight = "#F58518", opacity = 0.6),
+      color = list(color = edge_colour, highlight = "#c8973f", opacity = 0.6),
       scaling = list(min = 1, max = 9)
     ) %>%
     visNetwork::visEvents(

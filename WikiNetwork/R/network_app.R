@@ -130,7 +130,7 @@ keyword_network_ui <- function(config) {
         icon = shiny::icon("circle-nodes"),
         shinycssloaders::withSpinner(
           visNetwork::visNetworkOutput("network", height = "620px"),
-          type = 8, color = "#4C78A8"
+          type = 8, color = "#0e7c6b"
         ),
         shiny::uiOutput("selected_term"),
         shiny::div(class = "status-note mt-2", config$footer_note)
