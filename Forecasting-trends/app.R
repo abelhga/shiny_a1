@@ -26,6 +26,18 @@ MAX_KEYWORDS <- 5L  # Google Trends compares at most five terms at a time
 # for four- and five-term comparisons.
 SERIES_COLOURS <- c("#0e7c6b", "#b8336a", "#c8973f", "#4C78A8", "#8C6BB1")
 
+series_colour <- function(i) SERIES_COLOURS[((i - 1) %% length(SERIES_COLOURS)) + 1]
+
+#' Hex colour to a plotly rgba() string, for translucent ribbons.
+rgba <- function(hex, alpha) {
+  v <- grDevices::col2rgb(hex)
+  sprintf("rgba(%d,%d,%d,%.2f)", v[1], v[2], v[3], alpha)
+}
+
+# Sentinel for "every fetched term at once" in the series and insights
+# selectors. Not a plausible search term, so it cannot collide with one.
+ALL_SERIES <- "__all_terms__"
+
 REGIONS <- trends_regions()
 
 # --- UI --------------------------------------------------------------------
@@ -180,6 +192,8 @@ ui <- bslib::page_sidebar(
     bslib::nav_panel(
       "AI insights",
       icon = shiny::icon("robot"),
+      shiny::selectInput("ai_scope", "Insights about", choices = character(0),
+                         width = "260px"),
       aiInsightsUI("ai", label = "Interpret this forecast")
     )
   )
@@ -285,13 +299,26 @@ server <- function(input, output, session) {
   })
 
   # Point the series picker and the horizon slider at what actually came back.
+  # With several terms, both pickers gain an "all terms" option and start
+  # there: a comparison is what asking for several terms means.
   shiny::observeEvent(trends(), {
     data <- trends()
     shiny::req(data)
 
     available <- unique(data$keyword)
-    shiny::updateSelectInput(session, "series", choices = available,
-                             selected = available[1])
+    series_choices <- if (length(available) > 1) {
+      stats::setNames(c(ALL_SERIES, available),
+                      c("All terms (one forecast each)", available))
+    } else available
+    shiny::updateSelectInput(session, "series", choices = series_choices,
+                             selected = series_choices[[1]])
+
+    scope_choices <- if (length(available) > 1) {
+      stats::setNames(c(ALL_SERIES, available),
+                      c("All terms, compared", available))
+    } else available
+    shiny::updateSelectInput(session, "ai_scope", choices = scope_choices,
+                             selected = scope_choices[[1]])
 
     horizon <- suggest_horizon(attr(data, "step_seconds"))
     unit <- describe_step(attr(data, "step_seconds"))
@@ -308,12 +335,22 @@ server <- function(input, output, session) {
     if (is.null(data)) 86400 else attr(data, "step_seconds")
   })
 
-  history <- shiny::reactive({
+  all_mode <- shiny::reactive(identical(input$series, ALL_SERIES))
+
+  # One history per fetched term, oldest first, terms too short to model
+  # dropped. Everything per-term downstream reads from this.
+  histories <- shiny::reactive({
     data <- trends()
-    shiny::req(data, input$series)
-    chosen <- data[data$keyword == input$series, c("ds", "y"), drop = FALSE]
-    chosen <- as.data.frame(chosen[order(chosen$ds), , drop = FALSE])
-    shiny::validate(shiny::need(nrow(chosen) >= 5,
+    shiny::req(data)
+    parts <- split(as.data.frame(data[, c("ds", "y")]), data$keyword)
+    parts <- lapply(parts, function(df) df[order(df$ds), , drop = FALSE])
+    parts[vapply(parts, nrow, integer(1)) >= 5]
+  })
+
+  history <- shiny::reactive({
+    shiny::req(input$series, !all_mode())
+    chosen <- histories()[[input$series]]
+    shiny::validate(shiny::need(!is.null(chosen),
                                 "Not enough observations for this series to model."))
     chosen
   })
@@ -327,25 +364,61 @@ server <- function(input, output, session) {
     )
   })
 
-  model <- shiny::reactive({
-    past <- history()
-    shiny::req(nrow(past) >= 5)
-    shiny::withProgress(message = "Fitting Prophet", value = 0.5, {
-      do.call(fit_prophet_model, c(list(history = past), model_args()))
+  # One Prophet model per term, so the Forecast tab and the AI briefing can
+  # cover every term, not just the selected one. Fitting is the slow part and
+  # only reruns when the data or the model settings change; moving the
+  # horizon slider re-predicts without refitting.
+  models_all <- shiny::reactive({
+    hs <- histories()
+    shiny::req(length(hs) > 0)
+    args <- model_args()
+    shiny::withProgress(message = "Fitting Prophet", value = 0, {
+      models <- vector("list", length(hs))
+      names(models) <- names(hs)
+      for (kw in names(hs)) {
+        shiny::incProgress(1 / length(hs), detail = kw)
+        models[[kw]] <- tryCatch(
+          do.call(fit_prophet_model, c(list(history = hs[[kw]]), args)),
+          error = function(e) NULL
+        )
+      }
+      models[!vapply(models, is.null, logical(1))]
     })
   })
 
+  forecasts_all <- shiny::reactive({
+    hs <- histories()
+    models <- models_all()
+    step <- step_seconds()
+    predictions <- list()
+    for (kw in names(models)) {
+      future <- prophet::make_future_dataframe(
+        models[[kw]],
+        periods = as.integer(input$horizon),
+        freq = step,
+        include_history = TRUE
+      )
+      future <- with_capacity(future, input$growth, hs[[kw]]$y)
+      predicted <- stats::predict(models[[kw]], future)
+      predicted$ds <- as.POSIXct(predicted$ds, tz = "UTC")
+      predictions[[kw]] <- predicted
+    }
+    predictions
+  })
+
+  model <- shiny::reactive({
+    shiny::req(!all_mode())
+    fitted <- models_all()[[input$series]]
+    shiny::validate(shiny::need(!is.null(fitted),
+                                "The model could not be fitted for this series."))
+    fitted
+  })
+
   forecast <- shiny::reactive({
-    fitted <- model()
-    future <- prophet::make_future_dataframe(
-      fitted,
-      periods = as.integer(input$horizon),
-      freq = step_seconds(),
-      include_history = TRUE
-    )
-    future <- with_capacity(future, input$growth, history()$y)
-    predicted <- stats::predict(fitted, future)
-    predicted$ds <- as.POSIXct(predicted$ds, tz = "UTC")
+    shiny::req(!all_mode())
+    predicted <- forecasts_all()[[input$series]]
+    shiny::validate(shiny::need(!is.null(predicted),
+                                "No forecast is available for this series."))
     predicted
   })
 
@@ -356,23 +429,50 @@ server <- function(input, output, session) {
     })
   })
 
-  anomalies <- shiny::reactive({
+  anomalies_for <- function(kw) {
     detect_anomalies(
-      history(),
+      histories()[[kw]],
       method = input$anomaly_method,
       sensitivity = input$anomaly_sensitivity,
       window = input$anomaly_window,
-      fitted = if (identical(input$anomaly_method, "residual")) forecast() else NULL
+      fitted = if (identical(input$anomaly_method, "residual")) forecasts_all()[[kw]] else NULL
     )
+  }
+
+  anomalies <- shiny::reactive({
+    shiny::req(!all_mode())
+    anomalies_for(input$series)
   })
 
-  trend_slope <- shiny::reactive({
-    past <- history()
-    if (nrow(past) < 3) return(NA_real_)
+  slope_for <- function(kw) {
+    past <- histories()[[kw]]
+    if (is.null(past) || nrow(past) < 3) return(NA_real_)
     fit <- stats::lm(y ~ as.numeric(ds), data = past)
     # Per period rather than per second, so the number means something.
     unname(stats::coef(fit)[2]) * step_seconds()
-  })
+  }
+
+  trend_slope <- shiny::reactive(slope_for(input$series))
+
+  direction_of <- function(slope) {
+    if (!is.finite(slope)) "unknown"
+    else if (slope > 0.01) "rising"
+    else if (slope < -0.01) "falling"
+    else "flat"
+  }
+
+  #' Forecast change over the horizon, in percent, for one term.
+  change_for <- function(kw) {
+    past <- histories()[[kw]]
+    predicted <- forecasts_all()[[kw]]
+    if (is.null(past) || is.null(predicted)) return(NA_real_)
+    future_rows <- predicted[predicted$ds > max(past$ds), , drop = FALSE]
+    if (!nrow(future_rows)) return(NA_real_)
+    last_actual <- past$y[nrow(past)]
+    if (last_actual > 0) {
+      (future_rows$yhat[nrow(future_rows)] - last_actual) / last_actual * 100
+    } else NA_real_
+  }
 
   # --- KPIs ----------------------------------------------------------------
   output$kpis <- shiny::renderUI({
@@ -385,26 +485,33 @@ server <- function(input, output, session) {
       ))
     }
 
-    past <- history()
-    slope <- trend_slope()
     unit <- describe_step(step_seconds())
 
-    direction <- if (!is.finite(slope)) "unknown"
-    else if (slope > 0.01) "rising"
-    else if (slope < -0.01) "falling"
-    else "flat"
+    # All-terms mode: one tile per term, forecast change as the headline.
+    if (isTRUE(all_mode())) {
+      kws <- names(histories())
+      tiles <- lapply(kws, function(kw) {
+        past <- histories()[[kw]]
+        change <- tryCatch(change_for(kw), error = function(e) NA_real_)
+        metric_card(
+          kw,
+          if (is.finite(change)) paste0(fmt_num(change, 1), "%") else "-",
+          sprintf("mean %s · %s", fmt_num(mean(past$y), 1),
+                  direction_of(slope_for(kw)))
+        )
+      })
+      return(shiny::tagList(
+        shiny::div(class = "status-note mb-2",
+                   sprintf("Forecast change per term over the next %d %ss.",
+                           as.integer(input$horizon), unit)),
+        shiny::div(class = "metric-grid mb-3", tiles)
+      ))
+    }
 
-    predicted <- tryCatch(forecast(), error = function(e) NULL)
-    change <- if (!is.null(predicted)) {
-      future_rows <- predicted[predicted$ds > max(past$ds), , drop = FALSE]
-      if (nrow(future_rows)) {
-        last_actual <- past$y[nrow(past)]
-        if (last_actual > 0) {
-          (future_rows$yhat[nrow(future_rows)] - last_actual) / last_actual * 100
-        } else NA_real_
-      } else NA_real_
-    } else NA_real_
-
+    past <- history()
+    slope <- trend_slope()
+    direction <- direction_of(slope)
+    change <- tryCatch(change_for(input$series), error = function(e) NA_real_)
     scores <- backtest()
 
     shiny::div(
@@ -455,6 +562,64 @@ server <- function(input, output, session) {
   })
 
   output$forecast_plot <- plotly::renderPlotly({
+    # All-terms mode: observed line, dotted forecast and translucent interval
+    # per term, in the term's colour, toggled together from the legend.
+    if (isTRUE(all_mode())) {
+      hs <- histories()
+      predictions <- forecasts_all()
+      shiny::req(length(predictions) > 0)
+      pal <- app_palette(isTRUE(input$dark_mode))
+
+      kws <- names(predictions)
+      cutoff <- do.call(max, lapply(hs[kws], function(h) max(h$ds)))
+      cutoff_label <- format(cutoff, "%Y-%m-%d %H:%M:%S")
+
+      figure <- plotly::plot_ly()
+      for (i in seq_along(kws)) {
+        kw <- kws[i]
+        past <- hs[[kw]]
+        predicted <- predictions[[kw]]
+        colour <- series_colour(i)
+        future_rows <- predicted[predicted$ds >= max(past$ds), , drop = FALSE]
+
+        figure <- plotly::add_ribbons(
+          figure, x = future_rows$ds,
+          ymin = future_rows$yhat_lower, ymax = future_rows$yhat_upper,
+          name = kw, legendgroup = kw, showlegend = FALSE,
+          line = list(width = 0), fillcolor = rgba(colour, 0.14),
+          hoverinfo = "skip"
+        )
+        figure <- plotly::add_lines(
+          figure, x = past$ds, y = past$y, name = kw, legendgroup = kw,
+          line = list(color = colour, width = 1.3),
+          hovertemplate = paste0("<b>", kw, "</b><br>%{x}<br>observed %{y}<extra></extra>")
+        )
+        figure <- plotly::add_lines(
+          figure, x = future_rows$ds, y = future_rows$yhat,
+          name = kw, legendgroup = kw, showlegend = FALSE,
+          line = list(color = colour, width = 2.2, dash = "dot"),
+          hovertemplate = paste0("<b>", kw, "</b><br>%{x}<br>forecast %{y:.1f}<extra></extra>")
+        )
+      }
+
+      figure <- plotly::layout(
+        figure,
+        xaxis = list(title = ""),
+        yaxis = list(title = "Relative search interest"),
+        shapes = list(list(
+          type = "line", x0 = cutoff_label, x1 = cutoff_label,
+          y0 = 0, y1 = 1, yref = "paper",
+          line = list(color = pal$sand, width = 1.5, dash = "dash")
+        )),
+        annotations = list(list(
+          x = cutoff_label, y = 1, yref = "paper", text = "forecast starts",
+          showarrow = FALSE, xanchor = "left", yanchor = "bottom",
+          font = list(size = 11, color = pal$sand)
+        ))
+      )
+      return(plotly_theme(figure, isTRUE(input$dark_mode)))
+    }
+
     past <- history()
     predicted <- forecast()
     shiny::req(predicted)
@@ -501,6 +666,13 @@ server <- function(input, output, session) {
   })
 
   output$accuracy_note <- shiny::renderUI({
+    if (isTRUE(all_mode())) {
+      return(shiny::div(
+        class = "status-note mt-2",
+        "Backtesting scores one model at a time - pick a single term under
+         \"Series to forecast\" to see its holdout accuracy."
+      ))
+    }
     scores <- backtest()
     if (is.null(scores)) {
       return(shiny::div(
@@ -520,6 +692,10 @@ server <- function(input, output, session) {
   })
 
   output$components_plot <- shiny::renderPlot({
+    shiny::validate(shiny::need(
+      !isTRUE(all_mode()),
+      "Seasonality is decomposed one model at a time - pick a single term under \"Series to forecast\"."
+    ))
     # Reuses the fitted model and its predictions instead of refitting, which
     # is what the previous version did on every redraw. Prophet draws with
     # ggplot's default theme, which is a white rectangle in dark mode, so the
@@ -542,6 +718,42 @@ server <- function(input, output, session) {
   }, bg = "transparent")
 
   output$anomaly_plot <- plotly::renderPlotly({
+    if (isTRUE(all_mode())) {
+      hs <- histories()
+      shiny::req(length(hs) > 0)
+      pal <- app_palette(isTRUE(input$dark_mode))
+      kws <- names(hs)
+
+      figure <- plotly::plot_ly()
+      for (i in seq_along(kws)) {
+        kw <- kws[i]
+        flagged <- tryCatch(anomalies_for(kw), error = function(e) NULL)
+        if (is.null(flagged)) next
+        colour <- series_colour(i)
+        figure <- plotly::add_lines(
+          figure, x = flagged$ds, y = flagged$y, name = kw, legendgroup = kw,
+          line = list(color = colour, width = 1.2),
+          hovertemplate = paste0("<b>", kw, "</b><br>%{x}<br>%{y}<extra></extra>")
+        )
+        hits <- flagged[flagged$anomaly, , drop = FALSE]
+        if (nrow(hits)) {
+          figure <- plotly::add_markers(
+            figure, x = hits$ds, y = hits$y,
+            name = kw, legendgroup = kw, showlegend = FALSE,
+            marker = list(color = colour, size = 9,
+                          line = list(color = pal$surface, width = 1)),
+            text = round(hits$score, 2),
+            hovertemplate = paste0("<b>", kw, "</b><br>%{x}<br>%{y} (z %{text})<extra></extra>")
+          )
+        }
+      }
+      figure <- plotly::layout(
+        figure, xaxis = list(title = ""),
+        yaxis = list(title = "Relative search interest")
+      )
+      return(plotly_theme(figure, isTRUE(input$dark_mode)))
+    }
+
     flagged <- anomalies()
     shiny::req(flagged)
     hits <- flagged[flagged$anomaly, , drop = FALSE]
@@ -571,6 +783,37 @@ server <- function(input, output, session) {
   })
 
   output$anomaly_table <- DT::renderDT({
+    if (isTRUE(all_mode())) {
+      total <- 0L
+      combined <- do.call(rbind, lapply(names(histories()), function(kw) {
+        flagged <- tryCatch(anomalies_for(kw), error = function(e) NULL)
+        if (is.null(flagged)) return(NULL)
+        total <<- total + nrow(flagged)
+        hits <- flagged[flagged$anomaly, , drop = FALSE]
+        if (!nrow(hits)) return(NULL)
+        hits$keyword <- kw
+        hits
+      }))
+      shiny::validate(shiny::need(
+        !is.null(combined) && nrow(combined),
+        sprintf("No observations flagged for any term at a threshold of %.1f.",
+                input$anomaly_sensitivity)
+      ))
+      combined <- combined[order(-abs(combined$score)), , drop = FALSE]
+      combined$score <- round(combined$score, 2)
+      combined$ds <- format(combined$ds, "%Y-%m-%d %H:%M")
+
+      return(DT::datatable(
+        combined[, c("keyword", "ds", "y", "score")],
+        rownames = FALSE,
+        colnames = c("Term", "When", "Interest", "Robust z"),
+        options = list(pageLength = 8, order = list(list(3, "desc"))),
+        caption = sprintf("%d of %d observations flagged at a threshold of %.1f, across %d terms.",
+                          nrow(combined), total, input$anomaly_sensitivity,
+                          length(histories()))
+      ))
+    }
+
     flagged <- anomalies()
     shiny::req(flagged)
     hits <- flagged[flagged$anomaly, , drop = FALSE]
@@ -614,6 +857,32 @@ server <- function(input, output, session) {
   })
 
   output$data_table <- DT::renderDT({
+    if (isTRUE(all_mode())) {
+      hs <- histories()
+      predictions <- forecasts_all()
+      shiny::req(length(predictions) > 0)
+      combined <- do.call(rbind, lapply(names(predictions), function(kw) {
+        predicted <- predictions[[kw]]
+        past <- hs[[kw]]
+        data.frame(
+          keyword = kw,
+          ds = format(predicted$ds, "%Y-%m-%d %H:%M"),
+          segment = ifelse(predicted$ds > max(past$ds), "forecast", "fitted"),
+          observed = past$y[match(predicted$ds, past$ds)],
+          yhat = round(predicted$yhat, 2),
+          yhat_lower = round(predicted$yhat_lower, 2),
+          yhat_upper = round(predicted$yhat_upper, 2),
+          stringsAsFactors = FALSE
+        )
+      }))
+      return(DT::datatable(
+        combined,
+        rownames = FALSE, filter = "top",
+        colnames = c("Term", "When", "Segment", "Observed", "Forecast", "Lower", "Upper"),
+        options = list(pageLength = 15, scrollX = TRUE)
+      ))
+    }
+
     predicted <- forecast()
     past <- history()
     shiny::req(predicted)
@@ -639,7 +908,8 @@ server <- function(input, output, session) {
 
   # --- downloads -----------------------------------------------------------
   stamp <- function(what) {
-    paste0(gsub("[^A-Za-z0-9]+", "-", input$series %||% "series"),
+    series <- if (isTRUE(all_mode())) "all-terms" else input$series %||% "series"
+    paste0(gsub("[^A-Za-z0-9]+", "-", series),
            "-", what, "-", format(Sys.Date()), ".csv")
   }
 
@@ -653,11 +923,14 @@ server <- function(input, output, session) {
   output$dl_forecast <- shiny::downloadHandler(
     filename = function() stamp("forecast"),
     content = function(file) {
-      shiny::req(forecast())
-      utils::write.csv(
-        forecast()[, c("ds", "yhat", "yhat_lower", "yhat_upper", "trend")],
-        file, row.names = FALSE
-      )
+      predictions <- forecasts_all()
+      shiny::req(length(predictions) > 0)
+      # Every term's forecast, whatever is on screen: the CSV is the record.
+      combined <- do.call(rbind, lapply(names(predictions), function(kw) {
+        cbind(keyword = kw,
+              predictions[[kw]][, c("ds", "yhat", "yhat_lower", "yhat_upper", "trend")])
+      }))
+      utils::write.csv(combined, file, row.names = FALSE)
     }
   )
   output$dl_related <- shiny::downloadHandler(
@@ -669,90 +942,146 @@ server <- function(input, output, session) {
   )
 
   # --- AI briefing ---------------------------------------------------------
+
+  #' Everything worth saying about one term, as briefing prose: history,
+  #' slope, forecast over the horizon, flagged dates and related queries.
+  term_briefing <- function(kw) {
+    past <- histories()[[kw]]
+    if (is.null(past)) {
+      return(sprintf("Term \"%s\": too few observations to model.", kw))
+    }
+    unit <- describe_step(step_seconds())
+
+    lines <- sprintf(
+      "Term \"%s\": %d observations from %s to %s. Mean %.1f, median %.1f, min %.0f, max %.0f (peak on %s). Linear trend %.3f points per %s (%s).",
+      kw, nrow(past),
+      format(min(past$ds), "%Y-%m-%d"), format(max(past$ds), "%Y-%m-%d"),
+      mean(past$y), stats::median(past$y), min(past$y), max(past$y),
+      format(past$ds[which.max(past$y)], "%Y-%m-%d"),
+      slope_for(kw), unit, direction_of(slope_for(kw))
+    )
+
+    predicted <- forecasts_all()[[kw]]
+    lines <- c(lines, if (!is.null(predicted)) {
+      future_rows <- predicted[predicted$ds > max(past$ds), , drop = FALSE]
+      if (nrow(future_rows)) {
+        sprintf("Forecast %d %ss ahead: %.1f now to %.1f at the end (80%% interval %.1f to %.1f), a change of %s%%.",
+                nrow(future_rows), unit, past$y[nrow(past)],
+                future_rows$yhat[nrow(future_rows)],
+                future_rows$yhat_lower[nrow(future_rows)],
+                future_rows$yhat_upper[nrow(future_rows)],
+                fmt_num(change_for(kw), 1))
+      } else "No forecast horizon was requested."
+    } else "The model could not be fitted for this term.")
+
+    flagged <- tryCatch(anomalies_for(kw), error = function(e) NULL)
+    hits <- if (is.null(flagged)) NULL else flagged[flagged$anomaly, , drop = FALSE]
+    lines <- c(lines, if (!is.null(hits) && nrow(hits)) {
+      top <- utils::head(hits[order(-abs(hits$score)), , drop = FALSE], 5)
+      paste0(sprintf("%d observations flagged as unusual. Largest: ", nrow(hits)),
+             paste(sprintf("%s (%.0f, z %.1f)", format(top$ds, "%Y-%m-%d"),
+                           top$y, top$score), collapse = "; "), ".")
+    } else "No observations flagged as unusual.")
+
+    related <- related_queries()
+    if (!is.null(related)) {
+      mine <- related[related$keyword == kw, , drop = FALSE]
+      if (nrow(mine)) {
+        rising <- utils::head(mine$query[mine$type == "rising"], 8)
+        top <- utils::head(mine$query[mine$type == "top"], 8)
+        lines <- c(lines, paste0(
+          "Related searches - top: ",
+          if (length(top)) paste(top, collapse = ", ") else "none",
+          "; rising: ",
+          if (length(rising)) paste(rising, collapse = ", ") else "none", "."
+        ))
+      }
+    }
+
+    paste(lines, collapse = " ")
+  }
+
   aiInsightsServer(
     "ai",
     context = shiny::reactive({
-      data <- trends()
-      if (is.null(data)) return(NULL)
-
-      past <- history()
-      predicted <- tryCatch(forecast(), error = function(e) NULL)
-      if (is.null(predicted)) return(NULL)
+      hs <- tryCatch(histories(), error = function(e) NULL)
+      if (is.null(hs) || !length(hs)) return(NULL)
 
       unit <- describe_step(step_seconds())
-      future_rows <- predicted[predicted$ds > max(past$ds), , drop = FALSE]
-      scores <- backtest()
-      flagged <- anomalies()
-      hits <- if (is.null(flagged)) NULL else flagged[flagged$anomaly, , drop = FALSE]
-
       region <- names(REGIONS)[match(input$geo, REGIONS)]
-      others <- setdiff(unique(data$keyword), input$series)
+      scope <- input$ai_scope %||% ALL_SERIES
 
-      comparison <- if (length(others)) {
-        means <- vapply(others, function(k) mean(data$y[data$keyword == k]), numeric(1))
-        paste0("Compared terms and their mean interest: ",
-               paste(sprintf("%s (%.1f)", others, means), collapse = ", "), ".")
-      } else "No other terms were compared."
-
-      paste(
-        sprintf("Google Trends relative search interest for \"%s\" in %s, %s, one observation per %s.",
-                input$series, region,
-                names(TIME_CHOICES)[match(input$time, TIME_CHOICES)], unit),
-        sprintf("%d observations from %s to %s. Mean %.1f, median %.1f, min %.0f, max %.0f (peak on %s).",
-                nrow(past), format(min(past$ds), "%Y-%m-%d"), format(max(past$ds), "%Y-%m-%d"),
-                mean(past$y), stats::median(past$y), min(past$y), max(past$y),
-                format(past$ds[which.max(past$y)], "%Y-%m-%d")),
-        sprintf("Linear trend: %.3f points per %s.", trend_slope(), unit),
-        comparison,
-        if (nrow(future_rows)) {
-          sprintf("Prophet (%s trend, %s seasonality, flexibility %.2f) forecasts %d %ss ahead: %.1f now to %.1f at the end, interval %.1f to %.1f.",
-                  input$growth, input$seasonality_mode, input$changepoint_prior,
-                  nrow(future_rows), unit, past$y[nrow(past)],
-                  future_rows$yhat[nrow(future_rows)],
-                  future_rows$yhat_lower[nrow(future_rows)],
-                  future_rows$yhat_upper[nrow(future_rows)])
-        } else "No forecast horizon was requested.",
-        if (!is.null(scores)) {
-          sprintf("Held-out accuracy on the last %d observations: MAE %.1f, MAPE %.1f%%, RMSE %.1f, interval coverage %.0f%%.",
-                  scores$holdout, scores$mae, scores$mape, scores$rmse, scores$coverage)
-        } else "The model was not backtested.",
-        if (!is.null(hits) && nrow(hits)) {
-          top <- hits[order(-abs(hits$score)), , drop = FALSE]
-          top <- utils::head(top, 10)
-          paste0(sprintf("%d observations flagged as unusual (%s, threshold %.1f). Largest: ",
-                         nrow(hits),
-                         names(ANOMALY_METHODS)[match(input$anomaly_method, ANOMALY_METHODS)],
-                         input$anomaly_sensitivity),
-                 paste(sprintf("%s (%.0f, z %.1f)", format(top$ds, "%Y-%m-%d"),
-                               top$y, top$score), collapse = "; "), ".")
-        } else "No observations were flagged as unusual.",
-        {
-          related <- related_queries()
-          if (!is.null(related)) {
-            mine <- related[related$keyword == input$series, , drop = FALSE]
-            if (nrow(mine)) {
-              rising <- utils::head(mine$query[mine$type == "rising"], 10)
-              top <- utils::head(mine$query[mine$type == "top"], 10)
-              paste0(
-                "Related searches for this term - top: ",
-                if (length(top)) paste(top, collapse = ", ") else "none",
-                "; rising: ",
-                if (length(rising)) paste(rising, collapse = ", ") else "none", "."
-              )
-            } else "No related queries came back for this term."
-          } else "Related queries were not fetched."
-        },
-        sep = "\n"
+      header <- sprintf(
+        paste("Google Trends relative search interest in %s, %s, one observation per %s.",
+              "Values share one 0-100 index scaled to the busiest point across all",
+              "compared terms, so levels are directly comparable between terms.",
+              "Prophet settings: %s trend, %s seasonality, flexibility %.2f, horizon %d %ss."),
+        region, names(TIME_CHOICES)[match(input$time, TIME_CHOICES)], unit,
+        input$growth, input$seasonality_mode, input$changepoint_prior,
+        as.integer(input$horizon), unit
       )
+
+      if (identical(scope, ALL_SERIES) && length(hs) > 1) {
+        kws <- names(hs)
+        blocks <- vapply(kws, term_briefing, character(1))
+
+        means <- sort(vapply(kws, function(kw) mean(hs[[kw]]$y), numeric(1)),
+                      decreasing = TRUE)
+        changes <- vapply(kws, function(kw) {
+          tryCatch(change_for(kw), error = function(e) NA_real_)
+        }, numeric(1))
+        changes <- sort(changes[is.finite(changes)], decreasing = TRUE)
+
+        paste(c(
+          header,
+          sprintf("%d terms are compared: %s.", length(kws), paste(kws, collapse = ", ")),
+          blocks,
+          paste0("Ranking by average interest: ",
+                 paste(sprintf("%s (%.1f)", names(means), means), collapse = ", "), "."),
+          if (length(changes)) {
+            paste0("Ranking by forecast change over the horizon: ",
+                   paste(sprintf("%s (%+.1f%%)", names(changes), changes), collapse = ", "), ".")
+          }
+        ), collapse = "\n")
+      } else {
+        kw <- if (identical(scope, ALL_SERIES)) names(hs)[1] else scope
+        if (!kw %in% names(hs)) return(NULL)
+
+        scores <- tryCatch(
+          if (identical(kw, input$series)) backtest() else NULL,
+          error = function(e) NULL
+        )
+        others <- setdiff(names(hs), kw)
+
+        paste(c(
+          header,
+          term_briefing(kw),
+          if (!is.null(scores)) {
+            sprintf("Held-out accuracy on the last %d observations: MAE %.1f, MAPE %.1f%%, RMSE %.1f, interval coverage %.0f%%.",
+                    scores$holdout, scores$mae, scores$mape, scores$rmse, scores$coverage)
+          } else "The model was not backtested.",
+          if (length(others)) {
+            means <- vapply(others, function(k) mean(hs[[k]]$y), numeric(1))
+            paste0("Other compared terms and their mean interest: ",
+                   paste(sprintf("%s (%.1f)", others, means), collapse = ", "), ".")
+          } else "No other terms were compared."
+        ), collapse = "\n")
+      }
     }),
     system_prompt = paste(
-      "You are a demand analyst briefing a marketing team on a search-interest",
-      "forecast. Structure the answer as: 1) what the series has actually been",
-      "doing; 2) what the forecast implies and how much to trust it, using the",
-      "held-out error and interval width; 3) what the flagged dates most likely",
-      "were, if anything in the data suggests it; 4) one caveat. Google Trends",
-      "values are relative (0-100), never absolute volumes - say so if it",
-      "matters. Use only the numbers in the briefing and keep it under 350 words."
+      "You are a demand analyst briefing a marketing team on search-interest",
+      "forecasts. The briefing covers either one term or several compared",
+      "terms. With several terms, lead with the comparison: which terms",
+      "dominate, which are gaining or fading, how their forecasts and their",
+      "seasonal peaks differ, and which one deserves attention first; then",
+      "any flagged dates worth explaining. With a single term, structure the",
+      "answer as: 1) what the series has actually been doing; 2) what the",
+      "forecast implies and how much to trust it, using the held-out error",
+      "and interval width when given; 3) what the flagged dates most likely",
+      "were, if anything in the data suggests it; 4) one caveat. Google",
+      "Trends values are relative (0-100, on one shared scale across compared",
+      "terms), never absolute volumes - say so if it matters. Use only the",
+      "numbers in the briefing and keep it under 400 words."
     )
   )
 }

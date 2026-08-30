@@ -96,14 +96,18 @@ anomaly scoring. No network calls, no API key.
 
 ### Forecasting-trends
 
-Compares up to five terms, then forecasts whichever one you pick.
+Compares up to five terms and fits one Prophet model per term. The series
+picker forecasts them all at once (the default when several came back) or any
+single one.
 
 - **Interest over time** — all terms, with a range slider.
 - **Forecast** — Prophet's prediction and 80% interval, with the forecast start
-  marked. Trend shape (linear, logistic or flat), seasonality mode, trend
-  flexibility and public holidays are all adjustable. The logistic option
-  saturates near 100, because the Trends index cannot leave its 0–100 scale —
-  a rising linear forecast happily would.
+  marked. With "All terms" selected, every term gets its own observed line,
+  dotted forecast and interval in its own colour, and the KPI tiles switch to
+  one forecast-change tile per term. Trend shape (linear, logistic or flat),
+  seasonality mode, trend flexibility and public holidays are all adjustable.
+  The logistic option saturates near 100, because the Trends index cannot
+  leave its 0–100 scale — a rising linear forecast happily would.
 - **Held-out scoring** — the model is refit without the most recent stretch of
   data and scored on it (MAE, MAPE, RMSE, interval coverage), so the forecast
   comes with an error bar rather than an invitation to trust it.
@@ -116,7 +120,12 @@ Compares up to five terms, then forecasts whichever one you pick.
 - **Related queries** — optionally, the top and rising searches Google
   associates with each term, with a CSV download. Off by default because it is
   a second, heavier request against the same rate limit.
-- **Data** — the full table, plus CSV downloads.
+- **Data** — the full table, plus CSV downloads. The forecast CSV always
+  carries every term, whatever is on screen.
+- **AI insights** — the briefing sent to the model covers every fetched term
+  (history, trend, per-term forecast, flagged dates, rankings by level and by
+  forecast change); an "Insights about" picker narrows it to one term when you
+  want the read-out separately.
 
 Google Trends values are relative (0–100 within the comparison you asked for),
 never absolute search volumes. It also compares at most five terms per
