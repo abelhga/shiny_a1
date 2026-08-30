@@ -81,6 +81,43 @@ get_stopwords <- function(lang) {
   sort(unique(c(builtin, from_tm)))
 }
 
+# --- Question / preposition modifiers --------------------------------------
+# Used by the "by questions" expansion method: each modifier is combined with
+# the seed ("how seed", "seed for", ...) the way keyword-research tools do, so
+# the harvest surfaces intent (questions, comparisons, prepositions) rather
+# than the alphabet.
+QUESTION_MODIFIERS <- list(
+  en = c("who", "what", "where", "when", "why", "how", "which", "can", "will",
+         "is", "are", "vs", "versus", "or", "and", "for", "with", "without",
+         "near", "like", "to", "best", "cheap", "free", "review"),
+  es = c("quien", "que", "donde", "cuando", "por que", "como", "cual", "puede",
+         "es", "son", "vs", "o", "y", "para", "con", "sin", "cerca", "como",
+         "mejor", "barato", "gratis", "opiniones"),
+  fr = c("qui", "quoi", "ou", "quand", "pourquoi", "comment", "quel", "peut",
+         "est", "sont", "vs", "ou", "et", "pour", "avec", "sans", "proche",
+         "comme", "meilleur", "pas cher", "gratuit", "avis"),
+  de = c("wer", "was", "wo", "wann", "warum", "wie", "welche", "kann", "wird",
+         "ist", "sind", "vs", "oder", "und", "fur", "mit", "ohne", "nahe",
+         "wie", "beste", "gunstig", "kostenlos", "test"),
+  it = c("chi", "cosa", "dove", "quando", "perche", "come", "quale", "puo",
+         "e", "sono", "vs", "o", "e", "per", "con", "senza", "vicino",
+         "come", "migliore", "economico", "gratis", "recensioni"),
+  pt = c("quem", "o que", "onde", "quando", "por que", "como", "qual", "pode",
+         "e", "sao", "vs", "ou", "e", "para", "com", "sem", "perto", "como",
+         "melhor", "barato", "gratis", "avaliacao"),
+  nl = c("wie", "wat", "waar", "wanneer", "waarom", "hoe", "welke", "kan",
+         "wordt", "is", "zijn", "vs", "of", "en", "voor", "met", "zonder",
+         "dichtbij", "zoals", "beste", "goedkoop", "gratis", "review")
+)
+
+#' Modifier list for a language code, falling back to English.
+get_question_modifiers <- function(lang) {
+  lang <- tolower(substr(as.character(lang), 1L, 2L))
+  mods <- QUESTION_MODIFIERS[[lang]]
+  if (is.null(mods)) mods <- QUESTION_MODIFIERS$en
+  unique(mods)
+}
+
 #' Label valid UTF-8 text as UTF-8.
 #'
 #' Suggestions arrive as UTF-8 from the APIs, but a session running in the C
@@ -270,10 +307,21 @@ network_frames <- function(scored, top_n = 150L, min_edge_weight = 1L,
 
   colours <- NETWORK_PALETTE[((terms$community - 1L) %% length(NETWORK_PALETTE)) + 1L]
 
+  # Normalise the sizing metric to 1..100 for vis.js. The old pmax(x, 1)
+  # flattened betweenness (a 0..1 number) to a constant, so every node drew
+  # at the same size whenever that metric was selected.
+  raw <- terms[[size_by]]
+  rng <- suppressWarnings(range(raw[is.finite(raw)]))
+  value <- if (all(is.finite(rng)) && diff(rng) > 0) {
+    1 + 99 * (raw - rng[1L]) / diff(rng)
+  } else {
+    rep(50, nrow(terms))
+  }
+
   nodes <- data.frame(
     id    = terms$term,
     label = terms$term,
-    value = pmax(terms[[size_by]], 1),
+    value = value,
     group = paste("Cluster", terms$community),
     color = colours,
     title = paste0(
@@ -402,12 +450,22 @@ clear_suggest_cache <- function() {
 }
 
 #' How many HTTP calls a given setting will make, so the UI can warn first.
-estimate_requests <- function(level, method, alphabet_size = 26L, branch = 12L) {
-  level <- as.integer(level)
+#'
+#' Works for any depth: the alphabetical crawl appends one more letter per
+#' level (1 + 26 + 26^2 + ...), "by questions" pairs the seed with each
+#' modifier on both sides, and "by vector" widens by `branch` per level.
+estimate_requests <- function(level, method, alphabet_size = 26L, branch = 12L,
+                              modifiers = 25L) {
+  level <- max(1L, as.integer(level))
   if (identical(method, "alphabetically")) {
-    if (level <= 1L) return(1L)
-    if (level == 2L) return(1L + alphabet_size)
-    return(as.integer(1L + alphabet_size + alphabet_size^2))
+    total <- 1
+    if (level > 1L) {
+      for (d in seq_len(level - 1L)) total <- total + alphabet_size^d
+    }
+    return(as.integer(min(total, .Machine$integer.max)))
+  }
+  if (identical(method, "by_questions")) {
+    return(as.integer(1L + 2L * as.integer(modifiers)))
   }
   total <- 1L
   frontier <- 1L
@@ -423,13 +481,16 @@ estimate_requests <- function(level, method, alphabet_size = 26L, branch = 12L) 
 #' Harvest autocomplete suggestions around a seed keyword.
 #'
 #' @param fetcher function(query) returning a character vector of suggestions.
-#' @param method "alphabetically" (seed + a..z) or "by_vector" (feed each
-#'   suggestion back in as a new seed).
+#' @param method "alphabetically" (seed + a..z, one more letter per level),
+#'   "by_questions" (seed paired with question/preposition modifiers) or
+#'   "by_vector" (feed each suggestion back in as a new seed).
+#' @param modifiers character vector for "by_questions"; defaults to English.
 #' @param progress function(done, total, label) called between requests.
 #' @return list(suggestions, requests, failures, truncated)
 expand_suggestions <- function(seed, fetcher, level = 2L, method = "alphabetically",
                                max_requests = 250L, pause = 0.1,
-                               alphabet = letters, progress = NULL) {
+                               alphabet = letters, modifiers = NULL,
+                               progress = NULL) {
 
   level <- max(1L, as.integer(level))
   seed <- trimws(seed)
@@ -455,12 +516,24 @@ expand_suggestions <- function(seed, fetcher, level = 2L, method = "alphabetical
   collected <- character(0)
   requests <- 0L
 
-  if (identical(method, "alphabetically")) {
-    queries <- seed
-    if (level > 1L) queries <- c(queries, paste0(seed, " ", alphabet))
-    if (level > 2L) {
-      grid <- expand.grid(a = alphabet, b = alphabet, stringsAsFactors = FALSE)
-      queries <- c(queries, paste0(seed, " ", grid$a, grid$b))
+  if (method %in% c("alphabetically", "by_questions")) {
+    if (identical(method, "alphabetically")) {
+      queries <- seed
+      if (level > 1L) {
+        suffixes <- alphabet
+        for (d in seq.int(2L, level)) {
+          queries <- c(queries, paste0(seed, " ", suffixes))
+          if (d < level) {
+            suffixes <- as.vector(outer(suffixes, alphabet, paste0))
+          }
+        }
+      }
+    } else {
+      mods <- modifiers
+      if (is.null(mods) || !length(mods)) mods <- QUESTION_MODIFIERS$en
+      mods <- unique(trimws(as.character(mods)))
+      mods <- mods[nzchar(mods)]
+      queries <- unique(c(seed, paste(mods, seed), paste(seed, mods)))
     }
     if (length(queries) > max_requests) {
       queries <- queries[seq_len(max_requests)]

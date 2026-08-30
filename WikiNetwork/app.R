@@ -41,7 +41,7 @@ WIKI_LANGUAGES <- c(
 #'
 #' Returns matching article titles. The response is a four-element array
 #' (search term, titles, descriptions, urls); only the titles are used.
-wikipedia_suggest <- function(query, lang = "en", limit = 25L) {
+wikipedia_suggest <- function(query, lang = "en", limit = 50L) {
   query <- trimws(query)
   if (!nzchar(query)) return(character(0))
 

@@ -94,3 +94,17 @@ ok("empty input returns NULL rather than erroring")
 stopifnot(length(TIME_CHOICES) == 9, "all" %in% TIME_CHOICES)
 stopifnot(setequal(ANOMALY_METHODS, c("rolling", "global", "residual")))
 ok("choice vectors are intact")
+
+# --- logistic capacity -----------------------------------------------------
+# Prophet's logistic growth needs cap strictly above every observation, and
+# the prediction frame must reuse the cap the model was trained with.
+stopifnot(logistic_cap(c(10, 50, 100)) > 100)
+stopifnot(logistic_cap(c(10, 20)) > 100)          # index tops out at 100 anyway
+stopifnot(logistic_cap(c(10, 150)) > 150)         # but never below the data
+
+frame <- data.frame(ds = daily[1:5])
+capped <- with_capacity(frame, "logistic", c(10, 90, 100))
+stopifnot(all(c("cap", "floor") %in% names(capped)),
+          all(capped$cap > 100), all(capped$floor == 0))
+stopifnot(identical(with_capacity(frame, "linear", c(10, 90)), frame))
+ok("with_capacity adds cap/floor only for logistic growth")

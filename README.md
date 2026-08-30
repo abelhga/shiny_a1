@@ -10,7 +10,8 @@ Four R Shiny apps for exploring what people search for, and where it is heading.
 | [`WikiNetwork/`](WikiNetwork) | The same, from Wikipedia article search |
 
 Every app has an optional **AI insights** tab that asks an OpenAI model to write
-a plain-language read-out of whatever is on screen.
+a plain-language read-out of whatever is on screen, with an optional free-text
+focus box ("which cluster should I target first?") to steer the commentary.
 
 ## Running an app
 
@@ -99,8 +100,10 @@ Compares up to five terms, then forecasts whichever one you pick.
 
 - **Interest over time** — all terms, with a range slider.
 - **Forecast** — Prophet's prediction and 80% interval, with the forecast start
-  marked. Trend shape, seasonality mode, trend flexibility and public holidays
-  are all adjustable.
+  marked. Trend shape (linear, logistic or flat), seasonality mode, trend
+  flexibility and public holidays are all adjustable. The logistic option
+  saturates near 100, because the Trends index cannot leave its 0–100 scale —
+  a rising linear forecast happily would.
 - **Held-out scoring** — the model is refit without the most recent stretch of
   data and scored on it (MAE, MAPE, RMSE, interval coverage), so the forecast
   comes with an error bar rather than an invitation to trust it.
@@ -110,21 +113,30 @@ Compares up to five terms, then forecasts whichever one you pick.
   sensitivity threshold in robust-z units. The scoring uses median/MAD rather
   than mean/sd, because a spike large enough to matter inflates an sd score
   enough to hide inside it.
+- **Related queries** — optionally, the top and rising searches Google
+  associates with each term, with a CSV download. Off by default because it is
+  a second, heavier request against the same rate limit.
 - **Data** — the full table, plus CSV downloads.
 
 Google Trends values are relative (0–100 within the comparison you asked for),
-never absolute search volumes.
+never absolute search volumes. It also compares at most five terms per
+request — the app now says so when it has to trim your list instead of
+trimming it silently.
 
 ### The keyword network apps
 
 Type a seed keyword, and the app walks the source's autocomplete outward —
-either alphabetically (`seed a`, `seed b`, …) or by vector (feed each
-suggestion back in as a new seed). Words that appear in the same suggestion get
-an edge; the weight is how many suggestions they share.
+alphabetically (`seed a`, `seed b`, …, up to depth 4), by vector (feed each
+suggestion back in as a new seed), or **by questions & prepositions**
+(`how seed`, `seed for`, `seed vs`, …, in the language you are querying —
+the quickest way to surface intent rather than vocabulary). Words that appear
+in the same suggestion get an edge; the weight is how many suggestions they
+share.
 
 - A **request budget** with a live estimate, so a depth-3 alphabetical crawl
   (703 requests) cannot be started by accident. Progress is reported per
-  request and results are cached for the session.
+  request and results are cached for the session (a sidebar link clears the
+  cache when you want fresh data).
 - **Adaptive defaults** — after harvesting, the app picks the physics solver,
   node count, edge-weight floor and label size that suit the graph it actually
   got.
@@ -134,8 +146,9 @@ an edge; the weight is how many suggestions they share.
 - **Louvain clusters**, colour-blind-safe palette, per-node tooltips with
   frequency, degree, weighted strength and betweenness.
 - **Terms / Charts / Suggestions** tabs with sortable tables, bar charts and
-  CSV downloads.
-- Light and dark themes, switchable without a reload.
+  CSV downloads, plus a **GraphML export** of the full scored graph for Gephi
+  or Cytoscape.
+- Light and dark themes, switchable without a reload — charts included.
 
 Stop words follow the language you are querying in — including, for Amazon, the
 marketplace's own language rather than always English.
