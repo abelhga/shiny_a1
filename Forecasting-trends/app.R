@@ -7,8 +7,9 @@
 #
 # Originally by Abel Hernandez Garcia // hi@abelhga.com // www.abelhga.com
 #
-# Packages: shiny, bslib, dplyr, plotly, DT, gtrendsR, prophet, lubridate,
-#           countrycode, shinycssloaders, httr, jsonlite.
+# Packages: shiny, bslib, dplyr, plotly, DT, gtrendsR, prophet (whose ggplot2
+#           themes the seasonality plots), lubridate, countrycode,
+#           shinycssloaders, httr, jsonlite.
 # See ../install_dependencies.R
 # ---------------------------------------------------------------------------
 
@@ -21,7 +22,9 @@ for (.f in list.files("R", pattern = "[.]R$", full.names = TRUE)) source(.f)
 
 MAX_KEYWORDS <- 5L  # Google Trends compares at most five terms at a time
 
-SERIES_COLOURS <- c("#4C78A8", "#F58518", "#54A24B", "#E45756", "#B279A2")
+# The site's accents first (teal, magenta, sand), then two compatible extras
+# for four- and five-term comparisons.
+SERIES_COLOURS <- c("#0e7c6b", "#b8336a", "#c8973f", "#4C78A8", "#8C6BB1")
 
 REGIONS <- trends_regions()
 
@@ -114,7 +117,7 @@ ui <- bslib::page_sidebar(
       icon = shiny::icon("chart-line"),
       shinycssloaders::withSpinner(
         plotly::plotlyOutput("trends_plot", height = "600px"),
-        type = 8, color = "#4C78A8"
+        type = 8, color = "#0e7c6b"
       )
     ),
 
@@ -123,7 +126,7 @@ ui <- bslib::page_sidebar(
       icon = shiny::icon("arrow-trend-up"),
       shinycssloaders::withSpinner(
         plotly::plotlyOutput("forecast_plot", height = "540px"),
-        type = 8, color = "#4C78A8"
+        type = 8, color = "#0e7c6b"
       ),
       shiny::uiOutput("accuracy_note")
     ),
@@ -135,7 +138,7 @@ ui <- bslib::page_sidebar(
                  "How Prophet splits the series into trend and repeating cycles."),
       shinycssloaders::withSpinner(
         shiny::plotOutput("components_plot", height = "620px"),
-        type = 8, color = "#4C78A8"
+        type = 8, color = "#0e7c6b"
       )
     ),
 
@@ -144,7 +147,7 @@ ui <- bslib::page_sidebar(
       icon = shiny::icon("triangle-exclamation"),
       shinycssloaders::withSpinner(
         plotly::plotlyOutput("anomaly_plot", height = "420px"),
-        type = 8, color = "#4C78A8"
+        type = 8, color = "#0e7c6b"
       ),
       DT::DTOutput("anomaly_table")
     ),
@@ -459,23 +462,23 @@ server <- function(input, output, session) {
     cutoff <- max(past$ds)
     cutoff_label <- format(cutoff, "%Y-%m-%d %H:%M:%S")
     future_rows <- predicted[predicted$ds >= cutoff, , drop = FALSE]
+    pal <- app_palette(isTRUE(input$dark_mode))
 
     figure <- plotly::plot_ly()
     figure <- plotly::add_ribbons(
       figure, x = future_rows$ds,
       ymin = future_rows$yhat_lower, ymax = future_rows$yhat_upper,
       name = "80% interval", line = list(width = 0),
-      fillcolor = "rgba(76,120,168,0.22)", hoverinfo = "skip"
+      fillcolor = "rgba(14,124,107,0.18)", hoverinfo = "skip"
     )
     figure <- plotly::add_lines(
       figure, x = past$ds, y = past$y, name = "Observed",
-      line = list(color = if (isTRUE(input$dark_mode)) "#e6edf3" else "#1b1f24",
-                  width = 1.6),
+      line = list(color = pal$ink, width = 1.6),
       hovertemplate = "%{x}<br>observed %{y}<extra></extra>"
     )
     figure <- plotly::add_lines(
       figure, x = future_rows$ds, y = future_rows$yhat, name = "Forecast",
-      line = list(color = "#4C78A8", width = 2.5, dash = "dot"),
+      line = list(color = pal$teal, width = 2.5, dash = "dot"),
       hovertemplate = "%{x}<br>forecast %{y:.1f}<extra></extra>"
     )
 
@@ -486,12 +489,12 @@ server <- function(input, output, session) {
       shapes = list(list(
         type = "line", x0 = cutoff_label, x1 = cutoff_label,
         y0 = 0, y1 = 1, yref = "paper",
-        line = list(color = "rgba(245,133,24,0.8)", width = 1.5, dash = "dash")
+        line = list(color = pal$sand, width = 1.5, dash = "dash")
       )),
       annotations = list(list(
         x = cutoff_label, y = 1, yref = "paper", text = "forecast starts",
         showarrow = FALSE, xanchor = "left", yanchor = "bottom",
-        font = list(size = 11, color = "#F58518")
+        font = list(size = 11, color = pal$sand)
       ))
     )
     plotly_theme(figure, isTRUE(input$dark_mode))
@@ -518,28 +521,44 @@ server <- function(input, output, session) {
 
   output$components_plot <- shiny::renderPlot({
     # Reuses the fitted model and its predictions instead of refitting, which
-    # is what the previous version did on every redraw.
+    # is what the previous version did on every redraw. Prophet draws with
+    # ggplot's default theme, which is a white rectangle in dark mode, so the
+    # theme is swapped for the app palette while these plots render.
+    pal <- app_palette(isTRUE(input$dark_mode))
+    old <- ggplot2::theme_set(
+      ggplot2::theme_minimal() +
+        ggplot2::theme(
+          text = ggplot2::element_text(colour = pal$ink),
+          axis.text = ggplot2::element_text(colour = pal$ink_soft),
+          axis.title = ggplot2::element_text(colour = pal$ink_soft),
+          panel.grid.major = ggplot2::element_line(colour = pal$rule),
+          panel.grid.minor = ggplot2::element_blank(),
+          plot.background = ggplot2::element_rect(fill = "transparent", colour = NA),
+          panel.background = ggplot2::element_rect(fill = "transparent", colour = NA)
+        )
+    )
+    on.exit(ggplot2::theme_set(old), add = TRUE)
     prophet::prophet_plot_components(model(), forecast(), uncertainty = TRUE)
-  })
+  }, bg = "transparent")
 
   output$anomaly_plot <- plotly::renderPlotly({
     flagged <- anomalies()
     shiny::req(flagged)
     hits <- flagged[flagged$anomaly, , drop = FALSE]
+    pal <- app_palette(isTRUE(input$dark_mode))
 
     figure <- plotly::plot_ly()
     figure <- plotly::add_lines(
       figure, x = flagged$ds, y = flagged$y, name = "Observed",
-      line = list(color = if (isTRUE(input$dark_mode)) "#e6edf3" else "#1b1f24",
-                  width = 1.4),
+      line = list(color = pal$ink, width = 1.4),
       hovertemplate = "%{x}<br>%{y}<extra></extra>"
     )
     if (nrow(hits)) {
       figure <- plotly::add_markers(
         figure, x = hits$ds, y = hits$y,
         name = sprintf("Flagged (%d)", nrow(hits)),
-        marker = list(color = "#E45756", size = 9,
-                      line = list(color = "#ffffff", width = 1)),
+        marker = list(color = pal$magenta, size = 9,
+                      line = list(color = pal$surface, width = 1)),
         text = round(hits$score, 2),
         hovertemplate = "%{x}<br>%{y} (z %{text})<extra></extra>"
       )
