@@ -62,6 +62,30 @@ else
   sed -i "s|__FEATURED_URL__|forecasting/|g; s|__FEATURED_KW__|un ejemplo|g" /srv/shiny-server/index.html
 fi
 
+# Las variables de entorno NO llegan a R por sí solas. Shiny Server arranca
+# cada app como el usuario `shiny` con `su --login`, y el su de esta imagen
+# avisa que ignora --preserve-environment: el proceso de R nace con un
+# entorno limpio, sin GATE_ENABLED, sin la llave de OpenAI, sin Supabase. Se
+# descubrió porque el precalentado nunca escribía en el log. R sí lee
+# Renviron.site en cada arranque, así que las variables se copian ahí. Solo
+# las que la app usa, y solo si están puestas; el archivo lo lee el usuario
+# shiny y nadie más.
+renviron="$(R RHOME)/etc/Renviron.site"
+: > "$renviron"
+for var in GATE_ENABLED OWNER_KEY OWNER_REQUEST_BUDGET MAX_REQUEST_BUDGET \
+           AI_MAX_CALLS AI_MAX_CALLS_PER_DAY \
+           OPENAI_API_KEY OPENAI_MODEL OPENAI_BASE_URL \
+           SUPABASE_URL SUPABASE_ANON_KEY LINKEDIN_URL PUBLIC_SITE_URL \
+           FEATURED_KW FEATURED_GEO FEATURED_TIME GATE_CACHE_DIR; do
+  if [[ -n "${!var:-}" ]]; then
+    # Comillas dobles: los valores con espacios o comas (FEATURED_KW) las
+    # necesitan, y las que traiga el valor se escapan.
+    printf '%s="%s"\n' "$var" "${!var//\"/\\\"}" >> "$renviron"
+  fi
+done
+chown shiny:shiny "$renviron"; chmod 600 "$renviron"
+echo "[entrypoint] $(grep -c '=' "$renviron") variables copiadas a Renviron.site para los procesos de R"
+
 cat > /etc/nginx/sites-available/default <<NGINX
 # Generado en el arranque por entrypoint.sh. Editarlo aquí no sirve de nada:
 # se reescribe en cada despliegue.
@@ -174,7 +198,10 @@ autocomprobacion() {
 
   # ¿Viaja el embudo en el HTML? El marcador lo pone gate_head() en <head>.
   html="$(curl -s "${cred[@]}" "http://127.0.0.1:${PORT}/forecasting/")"
-  if printf '%s' "$html" | grep -q 'name="gate-app"'; then
+  # Comparación de subcadena en bash, no `grep -q`: con pipefail, grep -q
+  # cierra el pipe al primer acierto y la tubería sale en 141 aunque el
+  # marcador esté. Así se pasó una tarde creyendo que faltaba.
+  if [[ "$html" == *'name="gate-app"'* ]]; then
     echo "[autocomprobación] gate: presente en /forecasting/ (GATE_ENABLED=${GATE_ENABLED:-no})"
   else
     echo "[autocomprobación] gate: AUSENTE en /forecasting/ — diagnóstico:"

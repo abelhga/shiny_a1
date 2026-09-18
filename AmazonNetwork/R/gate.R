@@ -52,6 +52,17 @@ gate_config <- function() {
   )
 }
 
+# One line at start-up saying what this process actually sees. Environment
+# variables do not reach R on their own under Shiny Server (su --login drops
+# them); this is how a deployment proves they did. No secrets: only whether
+# each one is set.
+local({
+  cfg <- gate_config()
+  message(sprintf("[gate] config: enabled=%s owner_key=%s supabase=%s featured=%s openai=%s",
+                  cfg$enabled, nzchar(cfg$owner_key), nzchar(cfg$supabase_url),
+                  nzchar(Sys.getenv("FEATURED_KW", "")), nzchar(Sys.getenv("OPENAI_API_KEY", ""))))
+})
+
 OWNER_REQUEST_BUDGET <- function() {
   v <- suppressWarnings(as.integer(Sys.getenv("OWNER_REQUEST_BUDGET", "5000")))
   if (is.na(v) || v < 1L) 5000L else v

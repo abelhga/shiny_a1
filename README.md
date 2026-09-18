@@ -129,6 +129,13 @@ Around it, four things that make the first click from the post land well:
 | `FEATURED_KW`, `FEATURED_GEO`, `FEATURED_TIME` | the featured analysis |
 | `GATE_CACHE_DIR` | the disk cache (default under `tempdir()`) |
 
+One thing about variables in the container: Shiny Server starts each app as
+the `shiny` user with `su --login`, which drops the environment. The
+entrypoint copies the variables the apps use into `Renviron.site`, which R
+reads at start-up, and each app logs one line saying what it sees
+(`[gate] config: enabled=… supabase=… openai=…`). If a variable "does not
+work", that line is where to look.
+
 ```sql
 -- how is the funnel doing?
 select event, count(*) from web_events where created_at > now() - interval '7 days' group by 1;
