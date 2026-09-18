@@ -72,6 +72,7 @@ wikipedia_suggest <- function(query, lang = "en", limit = 50L) {
 }
 
 config <- list(
+  gate_id = "wiki",
   title = "Keyword Network Analysis - Wikipedia",
   subtitle = paste("Expand a seed term through Wikipedia's article search, then read the",
                    "result as a network of the concepts its titles share."),

@@ -75,6 +75,7 @@ amazon_suggest <- function(query, market_id) {
 }
 
 config <- list(
+  gate_id = "amazon",
   title = "Keyword Network Analysis - Amazon",
   subtitle = paste("Expand a seed keyword through Amazon's search autocomplete, then read",
                    "the result as a network of the words shoppers type together."),

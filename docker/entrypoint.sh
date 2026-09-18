@@ -53,6 +53,15 @@ fi
 # contraseñas, un upstream caído) se registra en `error` o `crit`.
 sed -i 's|^\s*error_log .*|error_log /dev/stderr warn;|' /etc/nginx/nginx.conf
 
+# La portada enlaza al análisis destacado; la URL se arma aquí porque el HTML
+# es estático y los términos vienen del entorno.
+if [[ -n "${FEATURED_KW:-}" ]]; then
+  featured="forecasting/?kw=$(printf '%s' "$FEATURED_KW" | sed 's/ /%20/g; s/,/%2C/g')&geo=${FEATURED_GEO:-MX}&time=$(printf '%s' "${FEATURED_TIME:-today+5-y}" | sed 's/+/%2B/g')"
+  sed -i "s|__FEATURED_URL__|${featured}|g; s|__FEATURED_KW__|${FEATURED_KW}|g" /srv/shiny-server/index.html
+else
+  sed -i "s|__FEATURED_URL__|forecasting/|g; s|__FEATURED_KW__|un ejemplo|g" /srv/shiny-server/index.html
+fi
+
 cat > /etc/nginx/sites-available/default <<NGINX
 # Generado en el arranque por entrypoint.sh. Editarlo aquí no sirve de nada:
 # se reescribe en cada despliegue.
@@ -92,6 +101,12 @@ server {
     # Sin esto, nginx acumula la respuesta y la barra de progreso de una
     # cosecha larga llega toda de golpe al final.
     proxy_buffering off;
+
+    # Shiny Server manda X-Frame-Options: DENY. Se quita y se sustituye por la
+    # lista de quién puede enmarcar estas apps: el propio sitio. Así abelhga.com
+    # puede meterlas en un iframe el día que quiera, y nadie más.
+    proxy_hide_header X-Frame-Options;
+    add_header Content-Security-Policy "frame-ancestors 'self' https://www.abelhga.com https://abelhga.com" always;
   }
 }
 NGINX
@@ -148,6 +163,20 @@ autocomprobacion() {
     codigo="$(curl -s -o /dev/null -w '%{http_code}' "${cred[@]}" "http://127.0.0.1:${PORT}/${ruta}/")"
     echo "[autocomprobación] /${ruta}/ -> ${codigo} (se espera 200)"
   done
+
+  # El enlace destacado (el del post): pedir su HTML arranca el proceso de R
+  # del forecast, y ese proceso precalienta la caché de Trends al iniciar.
+  if [[ -n "${FEATURED_KW:-}" ]]; then
+    codigo="$(curl -s -o /dev/null -w '%{http_code}' "${cred[@]}" "http://127.0.0.1:${PORT}/forecasting/?kw=$(printf '%s' "$FEATURED_KW" | sed 's/ /%20/g')")"
+    echo "[autocomprobación] enlace destacado -> ${codigo} (el precalentado se ve en el log de la app)"
+  fi
+
+  # ¿Viaja el embudo en el HTML? El marcador lo pone gate_head() en <head>.
+  if curl -s "${cred[@]}" "http://127.0.0.1:${PORT}/forecasting/" | grep -q 'name="gate-app"'; then
+    echo "[autocomprobación] gate: presente en /forecasting/ (GATE_ENABLED=${GATE_ENABLED:-no})"
+  else
+    echo "[autocomprobación] gate: AUSENTE en /forecasting/ — ¿gate.R no llegó a la imagen?"
+  fi
 }
 autocomprobacion &
 disown

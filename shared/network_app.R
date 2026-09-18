@@ -88,6 +88,7 @@ keyword_network_ui <- function(config) {
       shiny::actionButton("generate", "Generate network",
                           class = "btn btn-primary w-100",
                           icon = shiny::icon("diagram-project")),
+      gate_share_button(),
       shiny::hr(),
 
       bslib::accordion(
@@ -126,7 +127,10 @@ keyword_network_ui <- function(config) {
       )
     ),
 
-    shiny::tags$head(shiny::tags$style(app_styles())),
+    shiny::tags$head(
+      shiny::tags$style(app_styles()),
+      gate_head(config$gate_id %||% "network", config$title, config$subtitle)
+    ),
 
     shiny::div(class = "app-subtitle mb-2", config$subtitle),
 
@@ -194,9 +198,52 @@ keyword_network_ui <- function(config) {
 
 keyword_network_server <- function(config) {
   function(input, output, session) {
+    # The funnel (see gate.R). Off unless GATE_ENABLED=1, so a local run and
+    # the Posit mirror keep behaving as before.
+    gate <- gate_server(input, output, session,
+                        app_id = config$gate_id %||% "network",
+                        main_button = "#generate")
 
     harvest <- shiny::reactiveVal(NULL)  # expand_suggestions() result
     scored  <- shiny::reactiveVal(NULL)  # build_cooccurrence() result
+
+    # Re-attach after a dropped websocket instead of forcing a reload.
+    session$allowReconnect(TRUE)
+
+    # The analysis lives in the URL (?q=seed&scope=es&method=by_questions&level=2).
+    # See Forecasting-trends/app.R for why the run waits for the inputs to
+    # come back from the browser rather than for a timer.
+    autorun <- shiny::reactiveVal(0L)
+    pending <- shiny::reactiveVal(NULL)
+    shiny::observe({
+      p <- gate_parse_query(shiny::isolate(session$clientData$url_search))
+      if (!nzchar(p$q %||% "")) return()
+      want <- list(
+        q      = p$q,
+        scope  = if (isTRUE(p$scope %in% config$scope_choices)) p$scope else NULL,
+        method = if (isTRUE(p$method %in% c("by_vector", "alphabetically", "by_questions"))) p$method else NULL,
+        level  = suppressWarnings(as.integer(p$level))
+      )
+      if (is.na(want$level) || want$level < 1L || want$level > 4L) want$level <- NULL
+      shiny::updateTextInput(session, "keyword", value = want$q)
+      if (!is.null(want$scope))  shiny::updateSelectInput(session, "scope", selected = want$scope)
+      if (!is.null(want$method)) shiny::updateSelectInput(session, "method", selected = want$method)
+      if (!is.null(want$level))  shiny::updateSliderInput(session, "level", value = want$level)
+      pending(want)
+    }, priority = 10) |> shiny::bindEvent(session$clientData$url_search, once = TRUE)
+
+    shiny::observe({
+      want <- pending()
+      if (is.null(want)) return()
+      ok <- identical(input$keyword, want$q) &&
+        (is.null(want$scope)  || identical(input$scope, want$scope)) &&
+        (is.null(want$method) || identical(input$method, want$method)) &&
+        (is.null(want$level)  || identical(as.integer(input$level), want$level))
+      if (ok) {
+        pending(NULL)
+        autorun(shiny::isolate(autorun()) + 1L)
+      }
+    })
 
     # --- theme --------------------------------------------------------------
     shiny::observeEvent(input$dark_mode, {
@@ -211,26 +258,31 @@ keyword_network_server <- function(config) {
     output$request_estimate <- shiny::renderUI({
       wanted <- estimate_requests(input$level, input$method,
                                   modifiers = length(scope_modifiers()))
-      budget <- max(1L, min(MAX_REQUEST_BUDGET(), as.integer(input$max_requests %||% 60L)))
+      budget <- max(1L, min(gate_request_ceiling(session), as.integer(input$max_requests %||% 60L)))
       actual <- min(wanted, budget)
       shiny::div(
         class = "status-note mb-2",
         sprintf("These settings want %s request%s; the budget caps it at %s.",
                 format(wanted, big.mark = ","), if (wanted == 1L) "" else "s",
                 format(actual, big.mark = ",")),
-        if (wanted > budget && budget < MAX_REQUEST_BUDGET()) {
+        if (wanted > budget && budget < gate_request_ceiling(session)) {
           shiny::span(shiny::tags$br(),
                       "Raise the budget for a fuller picture, or lower the depth.")
         } else if (wanted > budget) {
           shiny::span(shiny::tags$br(),
                       sprintf("The budget tops out at %s per crawl on this host; lower the depth.",
-                              format(MAX_REQUEST_BUDGET(), big.mark = ",")))
+                              format(gate_request_ceiling(session), big.mark = ",")))
         }
       )
     })
 
     # --- harvesting ---------------------------------------------------------
-    shiny::observeEvent(input$generate, {
+    shiny::observeEvent({ input$generate; autorun() }, {
+      if (!isTRUE(gate$allowed)) {
+        gate_refuse(gate)
+        return()
+      }
+
       keyword <- trimws(input$keyword %||% "")
 
       if (!nzchar(keyword)) {
@@ -238,8 +290,13 @@ keyword_network_server <- function(config) {
         return()
       }
 
-      # Clamped here and not only in the input: see MAX_REQUEST_BUDGET.
-      budget <- max(1L, min(MAX_REQUEST_BUDGET(), as.integer(input$max_requests %||% 60L)))
+      gate$context <- keyword
+      gate_set_url(session, list(q = keyword, scope = input$scope, method = input$method,
+                                 level = if (identical(input$method, "by_questions")) NULL else input$level))
+
+      # Clamped here and not only in the input: see MAX_REQUEST_BUDGET. The
+      # owner's cookie raises the ceiling (gate_request_ceiling).
+      budget <- max(1L, min(gate_request_ceiling(session), as.integer(input$max_requests %||% 60L)))
 
       result <- shiny::withProgress(
         message = paste("Querying", config$source_label), value = 0,

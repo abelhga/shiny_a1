@@ -16,8 +16,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHARED="$ROOT/shared"
 
 # app folder : files it needs
-NETWORK_FILES=(ui_kit.R ai_insights.R keyword_network.R network_app.R)
-FORECAST_FILES=(ui_kit.R ai_insights.R)
+NETWORK_FILES=(ui_kit.R ai_insights.R gate.R keyword_network.R network_app.R)
+FORECAST_FILES=(ui_kit.R ai_insights.R gate.R)
 
 CHECK_ONLY=0
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1

@@ -65,6 +65,7 @@ google_suggest <- function(query, lang = "en") {
 }
 
 config <- list(
+  gate_id = "network",
   title = "Keyword Network Analysis - Google Suggest",
   subtitle = paste("Expand a seed keyword through Google's autocomplete, then read the",
                    "result as a network of the words people search together."),

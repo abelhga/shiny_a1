@@ -81,10 +81,59 @@ instance that sets nothing is the public one.
 | `AI_MAX_CALLS` | 5 | AI read-outs per browser session |
 | `AI_MAX_CALLS_PER_DAY` | 200 | AI read-outs per process per day |
 | `APP_PASSWORD` | unset | unset means no login at all |
+| `GATE_ENABLED` | unset | `1` turns on the funnel below |
+| `OWNER_KEY` | unset | `?owner=<key>` once sets a cookie that bypasses every ceiling |
+| `OWNER_REQUEST_BUDGET` | 5000 | the owner's crawl ceiling |
 
 Raising `MAX_REQUEST_BUDGET` buys a longer crawl, not an unlimited one: Google
 and Amazon rate limit a datacenter IP well before a few hundred requests. For a
 genuinely big crawl, run it locally on a residential connection.
+
+## The funnel
+
+The public instance is the landing page of a LinkedIn post, so it meters
+visitors instead of asking for a password (`shared/gate.R`):
+
+1. **One free go** — the first visit to any app.
+2. **Two more for an email** — on the second visit a modal asks for an address
+   (in Spanish or English, after the browser's language). The address goes to
+   Supabase with what they were analysing, which is what qualifies the contact.
+3. **Then "write to me on LinkedIn"**, with a `mailto:` whose subject carries
+   the terms they were looking at.
+
+A "visit" is a browser session; a reload or a dropped websocket within 30
+minutes is the same visit. State lives in first-party cookies for a year. It
+is a funnel, not a fortress: clearing cookies starts over, and that is fine.
+The owner opens `?owner=<OWNER_KEY>` once and is never metered again.
+
+Around it, four things that make the first click from the post land well:
+
+- **The analysis lives in the URL** (`?kw=a,b&geo=MX&time=today+5-y` on the
+  forecast, `?q=seed&scope=es&method=by_questions` on the networks). Opening a
+  link runs it, a forced reload reproduces it, and the *Share* button copies
+  it (native share sheet on phones). `session$allowReconnect(TRUE)` plus the
+  timeouts in `docker/shiny-server.conf` cover the short drops.
+- **A cache for Google Trends** (memory, then disk, six hours) so the terms
+  everybody asks for after the post never reach Google's rate limit twice.
+- **A featured analysis** (`FEATURED_KW`, `FEATURED_GEO`, `FEATURED_TIME`)
+  warmed when the forecasting process starts, linked from the landing page.
+- **Events** (`visit`, `email_asked`, `email_left`, `contact_shown`,
+  `contact_click`, `share`) in `web_events`, so the funnel can be measured
+  with one query.
+
+| Variable | What it is |
+|---|---|
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | where `web_leads` and `web_events` live; the key can only insert (RLS + revoked reads) |
+| `LINKEDIN_URL` | the contact button (default: the owner's profile) |
+| `PUBLIC_SITE_URL` | the site the apps belong to, for the copy and the Open Graph image |
+| `FEATURED_KW`, `FEATURED_GEO`, `FEATURED_TIME` | the featured analysis |
+| `GATE_CACHE_DIR` | the disk cache (default under `tempdir()`) |
+
+```sql
+-- how is the funnel doing?
+select event, count(*) from web_events where created_at > now() - interval '7 days' group by 1;
+select email, app, context, created_at from web_leads order by created_at desc;
+```
 
 ## Publishing on Posit Connect Cloud
 

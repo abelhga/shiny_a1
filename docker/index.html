@@ -175,6 +175,31 @@
   }
   .foot a { color: var(--plot-teal); }
   .foot p { margin: 0 0 0.5rem; }
+
+  /* El análisis destacado: el del post. Una tarjeta ancha, antes de la
+     retícula de apps, para que el primer clic tenga a dónde ir. */
+  .featured {
+    display: block;
+    margin: 0 0 calc(var(--grid) * 0.75);
+    padding: calc(var(--grid) * 0.8) calc(var(--grid) * 0.9);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--plot-magenta);
+    border-radius: var(--radius);
+    color: inherit;
+    text-decoration: none;
+    transition: background var(--dur) var(--ease);
+  }
+  .featured:hover { background: var(--paper); }
+  .featured strong {
+    display: block;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: var(--step-1);
+    color: var(--plot-magenta);
+    margin: 0.1rem 0 0.3rem;
+  }
+  .featured > span:last-child { color: var(--ink-soft); font-size: var(--step--1); }
 </style>
 </head>
 <body>
@@ -186,6 +211,12 @@
       pronóstico lo ajusta Prophet de verdad, y las redes se cosechan desde el
       servidor.
     </p>
+
+    <a class="featured" href="__FEATURED_URL__">
+      <span class="tick">Empieza por aquí</span>
+      <strong>__FEATURED_KW__</strong>
+      <span>Cinco años de interés de búsqueda en México, pronosticados con Prophet. Abre, mira, y cambia los términos por los tuyos.</span>
+    </a>
 
     <nav class="grid">
       <a class="card c1" href="forecasting/">
@@ -236,6 +267,11 @@
         Amazon limitan las peticiones de una IP de servidor, así que una cosecha
         larga puede quedarse a medias: la app lo dice y dibuja con lo que
         alcanzó a juntar.
+      </p>
+      <p>
+        La regla es simple: una prueba gratis, dos más a cambio de tu correo,
+        y después nos escribimos. Si algo de esto te sirve para tu trabajo,
+        <a href="https://www.linkedin.com/in/abelhga/" rel="me">cuéntamelo por LinkedIn</a>.
       </p>
     </div>
   </main>
