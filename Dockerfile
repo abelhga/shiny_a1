@@ -26,12 +26,14 @@ FROM rocker/shiny:4.3.3
 #   libcurl/libssl httr y curl, que son cómo hablan las cuatro apps
 #   nginx-light    el proxy de enfrente (puerto y autenticación)
 #   openssl        genera el hash de la contraseña en el arranque
+#   curl           la autocomprobación que el contenedor se hace a sí mismo
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libglpk40 \
       libxml2 \
       libcurl4-openssl-dev \
       libssl-dev \
       nginx-light \
+      curl \
       openssl \
     && rm -rf /var/lib/apt/lists/*
 
