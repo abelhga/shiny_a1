@@ -64,6 +64,14 @@ COPY network/                     /srv/shiny-server/network/
 COPY AmazonNetwork/               /srv/shiny-server/amazon/
 COPY WikiNetwork/                 /srv/shiny-server/wiki/
 
+# Las apps corren como el usuario `shiny` (run_as en shiny-server.conf), y
+# bslib quiere escribir su caché de Sass en <app>/app_cache. Con las carpetas
+# de root, cada arranque avisaba "Permission denied" y recompilaba el tema en
+# un directorio temporal. También el directorio de la caché de Trends.
+RUN chown -R shiny:shiny /srv/shiny-server \
+    && mkdir -p /var/lib/shiny-server/gate-cache \
+    && chown -R shiny:shiny /var/lib/shiny-server
+
 # Railway inyecta PORT; 8080 es solo el valor por omisión para correr en local.
 ENV PORT=8080
 EXPOSE 8080

@@ -113,16 +113,17 @@ NGINX
 
 nginx -t
 
-# rocker/shiny trae este script: crea /var/log/shiny-server y, con xtail,
-# vuelca los logs de cada app a stdout — que es lo único que Railway lee. Sin
-# él, un error de R se queda escrito dentro del contenedor, invisible.
-if [[ -x /usr/bin/shiny-server.sh ]]; then
-  /usr/bin/shiny-server.sh &
-else
-  mkdir -p /var/log/shiny-server
-  chown shiny:shiny /var/log/shiny-server
-  shiny-server &
+# Los logs de cada app de R van a archivos en /var/log/shiny-server, y Railway
+# solo lee stdout: xtail (viene en la imagen) los vuelca ahí. Sin esto, un
+# error de R —o un evento del embudo— se queda escrito dentro del contenedor,
+# invisible. (rocker/shiny trae un shiny-server.sh que hace lo mismo; esta
+# versión de la imagen no lo incluye, así que se hace aquí.)
+mkdir -p /var/log/shiny-server
+chown shiny:shiny /var/log/shiny-server
+if command -v xtail >/dev/null; then
+  xtail /var/log/shiny-server/ &
 fi
+shiny-server &
 SHINY_PID=$!
 
 nginx -g 'daemon off;' &
@@ -177,8 +178,10 @@ autocomprobacion() {
     echo "[autocomprobación] gate: presente en /forecasting/ (GATE_ENABLED=${GATE_ENABLED:-no})"
   else
     echo "[autocomprobación] gate: AUSENTE en /forecasting/ — diagnóstico:"
-    echo "[autocomprobación]   bytes=${#html} title=$(printf '%s' "$html" | grep -o '<title>[^<]*' | head -1)"
-    printf '%s' "$html" | grep -o '<meta[^>]*>' | head -8 | sed 's/^/[autocomprobación]   /'
+    echo "[autocomprobación]   bytes=${#html} (curl directo: $(curl -s "${cred[@]}" "http://127.0.0.1:${PORT}/forecasting/" | wc -c)) title=$(printf '%s' "$html" | grep -o '<title>[^<]*' | head -1)"
+    echo "[autocomprobación]   metas: $(printf '%s' "$html" | grep -o '<meta [a-z]*="[^"]*"' | sed 's/<meta //' | tr '\n' ' ')"
+    echo "[autocomprobación]   'gate-app' aparece $(printf '%s' "$html" | grep -o 'gate-app' | wc -l) veces; 'gate_state' $(printf '%s' "$html" | grep -o 'gate_state' | wc -l) veces"
+    printf '%s' "$html" | grep -o '<meta[^>]*>' | tail -4 | sed 's/^/[autocomprobación]   /'
     printf '%s' "$html" | head -c 400 | tr '\n' ' ' | sed 's/^/[autocomprobación]   inicio: /'; echo
     echo "[autocomprobación]   logs de app: $(ls /var/log/shiny-server 2>/dev/null | tr '\n' ' ')"
     for f in /var/log/shiny-server/forecasting-*.log; do
