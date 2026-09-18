@@ -8,6 +8,7 @@ suppressPackageStartupMessages({
   library(jsonlite)
   library(httr)
 })
+source("shared/ui_kit.R")      # `%||%`, que ai_insights.R usa
 source("shared/ai_insights.R")
 
 ok <- function(label) cat("  ok -", label, "\n")
