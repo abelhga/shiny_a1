@@ -172,10 +172,19 @@ autocomprobacion() {
   fi
 
   # ¿Viaja el embudo en el HTML? El marcador lo pone gate_head() en <head>.
-  if curl -s "${cred[@]}" "http://127.0.0.1:${PORT}/forecasting/" | grep -q 'name="gate-app"'; then
+  html="$(curl -s "${cred[@]}" "http://127.0.0.1:${PORT}/forecasting/")"
+  if printf '%s' "$html" | grep -q 'name="gate-app"'; then
     echo "[autocomprobación] gate: presente en /forecasting/ (GATE_ENABLED=${GATE_ENABLED:-no})"
   else
-    echo "[autocomprobación] gate: AUSENTE en /forecasting/ — ¿gate.R no llegó a la imagen?"
+    echo "[autocomprobación] gate: AUSENTE en /forecasting/ — diagnóstico:"
+    echo "[autocomprobación]   bytes=${#html} title=$(printf '%s' "$html" | grep -o '<title>[^<]*' | head -1)"
+    printf '%s' "$html" | grep -o '<meta[^>]*>' | head -8 | sed 's/^/[autocomprobación]   /'
+    printf '%s' "$html" | head -c 400 | tr '\n' ' ' | sed 's/^/[autocomprobación]   inicio: /'; echo
+    echo "[autocomprobación]   logs de app: $(ls /var/log/shiny-server 2>/dev/null | tr '\n' ' ')"
+    for f in /var/log/shiny-server/forecasting-*.log; do
+      [[ -f "$f" ]] && tail -n 15 "$f" | sed "s|^|[autocomprobación]   $(basename "$f"): |"
+    done
+    echo "[autocomprobación]   xtail=$(command -v xtail || echo no) shiny-server.sh=$([[ -x /usr/bin/shiny-server.sh ]] && echo sí || echo no)"
   fi
 }
 autocomprobacion &
