@@ -37,6 +37,23 @@ SOLVER_CHOICES <- c(
   "Repulsion (small graphs)" = "repulsion"
 )
 
+# Hard ceiling on requests per crawl, enforced on the server. The numericInput
+# `max` below is only a hint to the browser: anyone can edit the DOM and post
+# 5000, and on a public host every one of those is an outbound call from the
+# server's IP - the IP the autocomplete endpoints will then rate limit for
+# everyone. So the default is 500: a full depth-3 alphabetical crawl (703) is a
+# deliberate local run, not something a stranger starts with a click.
+#
+# MAX_REQUEST_BUDGET raises it, which is what a private deployment sets. Same
+# image, same code: only the environment says whether this instance is the
+# public one or the owner's. A deployment that sets nothing stays capped.
+# (The autocomplete endpoints rate limit a datacenter IP long before 5000
+# anyway - raising this buys a longer crawl, not an unlimited one.)
+MAX_REQUEST_BUDGET <- function() {
+  v <- suppressWarnings(as.integer(Sys.getenv("MAX_REQUEST_BUDGET", "500")))
+  if (is.na(v) || v < 1L) 500L else v
+}
+
 keyword_network_ui <- function(config) {
   bslib::page_sidebar(
     title = config$title,
@@ -65,18 +82,12 @@ keyword_network_ui <- function(config) {
       ),
 
       shiny::numericInput("max_requests", "Request budget",
-                          value = 60, min = 1, max = 5000, step = 10),
+                          value = 60, min = 1, max = MAX_REQUEST_BUDGET(), step = 10),
       shiny::uiOutput("request_estimate"),
 
       shiny::actionButton("generate", "Generate network",
                           class = "btn btn-primary w-100",
                           icon = shiny::icon("diagram-project")),
-      shiny::div(
-        class = "text-end mt-1",
-        shiny::actionLink("clear_cache", "Clear cached lookups",
-                          class = "small text-muted")
-      ),
-
       shiny::hr(),
 
       bslib::accordion(
@@ -200,24 +211,22 @@ keyword_network_server <- function(config) {
     output$request_estimate <- shiny::renderUI({
       wanted <- estimate_requests(input$level, input$method,
                                   modifiers = length(scope_modifiers()))
-      budget <- as.integer(input$max_requests %||% 60L)
+      budget <- max(1L, min(MAX_REQUEST_BUDGET(), as.integer(input$max_requests %||% 60L)))
       actual <- min(wanted, budget)
       shiny::div(
         class = "status-note mb-2",
         sprintf("These settings want %s request%s; the budget caps it at %s.",
                 format(wanted, big.mark = ","), if (wanted == 1L) "" else "s",
                 format(actual, big.mark = ",")),
-        if (wanted > budget) {
+        if (wanted > budget && budget < MAX_REQUEST_BUDGET()) {
           shiny::span(shiny::tags$br(),
                       "Raise the budget for a fuller picture, or lower the depth.")
+        } else if (wanted > budget) {
+          shiny::span(shiny::tags$br(),
+                      sprintf("The budget tops out at %s per crawl on this host; lower the depth.",
+                              format(MAX_REQUEST_BUDGET(), big.mark = ",")))
         }
       )
-    })
-
-    shiny::observeEvent(input$clear_cache, {
-      clear_suggest_cache()
-      shiny::showNotification("Cached lookups cleared - the next crawl re-fetches everything.",
-                              type = "message")
     })
 
     # --- harvesting ---------------------------------------------------------
@@ -229,7 +238,8 @@ keyword_network_server <- function(config) {
         return()
       }
 
-      budget <- max(1L, as.integer(input$max_requests %||% 60L))
+      # Clamped here and not only in the input: see MAX_REQUEST_BUDGET.
+      budget <- max(1L, min(MAX_REQUEST_BUDGET(), as.integer(input$max_requests %||% 60L)))
 
       result <- shiny::withProgress(
         message = paste("Querying", config$source_label), value = 0,

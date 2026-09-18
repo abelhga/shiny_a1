@@ -1,0 +1,243 @@
+<!doctype html>
+<!--
+  La portada del contenedor: las cuatro apps en una página.
+
+  Estática a propósito — sin build, sin JavaScript, sin dependencias. Shiny
+  Server la sirve tal cual desde /srv/shiny-server/index.html y sustituye a su
+  índice de directorio, que es una lista cruda de carpetas.
+
+  Los colores, las tipografías y la retícula son los de abelhga.com, copiados
+  de src/styles/tokens.css en el repositorio my-website. Si allá cambia la
+  dirección estética, aquí se cambia a mano: son dos proyectos distintos y no
+  comparten hoja de estilos.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Herramientas en R — Abel Hernández García</title>
+<meta name="description" content="Las cuatro apps de R completas: pronóstico de tendencias de búsqueda con Prophet y redes de co-ocurrencia de palabras clave." />
+<meta name="robots" content="noindex, nofollow" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #10231f;
+    --ink-soft: #3d534c;
+    --muted: #6b7a72;
+    --paper: #edf0ec;
+    --surface: #ffffff;
+    --rule: #cdd6d0;
+    --plot-teal: #0e7c6b;
+    --plot-magenta: #b8336a;
+    --plot-sand: #c8973f;
+    --plot-blue: #4c78a8;
+
+    --font-display: "Fraunces", Georgia, serif;
+    --font-body: "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+    --step--1: clamp(0.78rem, 0.76rem + 0.1vw, 0.84rem);
+    --step-0: clamp(1rem, 0.96rem + 0.2vw, 1.09rem);
+    --step-1: clamp(1.3rem, 1.2rem + 0.5vw, 1.6rem);
+    --step-2: clamp(1.8rem, 1.5rem + 1.4vw, 2.6rem);
+
+    --grid: 32px;
+    --gutter: clamp(1.25rem, 4vw, 3.5rem);
+    --max: 1180px;
+    --radius: 3px;
+    --dur: 520ms;
+    --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e3e9e5;
+      --ink-soft: #a9b8b1;
+      --muted: #7f8f87;
+      --paper: #0c1512;
+      --surface: #131f1b;
+      --rule: #26332e;
+      --plot-teal: #3fbfa5;
+      --plot-magenta: #e0709e;
+      --plot-sand: #dcae5c;
+      --plot-blue: #7fa3d1;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: var(--step-0);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* El campo de coordenadas: la retícula de 32 px del sitio. Se apaga en
+     pantallas chicas, donde solo ensucia. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, var(--rule) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--rule) 1px, transparent 1px);
+    background-size: var(--grid) var(--grid);
+    opacity: 0.4;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 75%);
+  }
+  @media (max-width: 640px) { body::before { display: none; } }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: calc(var(--grid) * 2) var(--gutter) calc(var(--grid) * 2.5);
+  }
+
+  .tick {
+    font-family: var(--font-mono);
+    font-size: var(--step--1);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 0.6rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: var(--step-2);
+    line-height: 1.1;
+    margin: 0 0 0.5rem;
+  }
+
+  .lede {
+    font-size: var(--step-1);
+    color: var(--ink-soft);
+    line-height: 1.4;
+    max-width: 54ch;
+    margin: 0 0 calc(var(--grid) * 1.5);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .card {
+    display: block;
+    background: var(--surface);
+    padding: calc(var(--grid) * 0.9);
+    text-decoration: none;
+    color: inherit;
+    transition: background var(--dur) var(--ease);
+  }
+  .card:hover, .card:focus-visible { background: var(--paper); outline: none; }
+  .card:focus-visible { box-shadow: inset 0 0 0 2px var(--plot-teal); }
+
+  .card .tick { margin-bottom: 0.4rem; }
+  .card h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: var(--step-1);
+    margin: 0 0 0.35rem;
+    color: var(--plot-teal);
+  }
+  .card p { margin: 0; color: var(--ink-soft); font-size: var(--step--1); line-height: 1.5; }
+
+  /* Un filo de color por tarjeta: el mismo orden de acentos que usan las
+     series del forecast. */
+  .card { border-left: 3px solid transparent; }
+  .card.c1 { border-left-color: var(--plot-teal); }
+  .card.c2 { border-left-color: var(--plot-magenta); }
+  .card.c3 { border-left-color: var(--plot-sand); }
+  .card.c4 { border-left-color: var(--plot-blue); }
+
+  .foot {
+    margin-top: calc(var(--grid) * 1.5);
+    color: var(--muted);
+    font-size: var(--step--1);
+    max-width: 62ch;
+  }
+  .foot a { color: var(--plot-teal); }
+  .foot p { margin: 0 0 0.5rem; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="tick">Abel Hernández García · apps en R</p>
+    <h1>Las herramientas completas</h1>
+    <p class="lede">
+      Las versiones en R de lo que abelhga.com corre en el navegador: aquí el
+      pronóstico lo ajusta Prophet de verdad, y las redes se cosechan desde el
+      servidor.
+    </p>
+
+    <nav class="grid">
+      <a class="card c1" href="forecasting/">
+        <p class="tick">pronóstico</p>
+        <h2>Search trends forecasting</h2>
+        <p>
+          Hasta cinco términos de Google Trends, un modelo Prophet por término,
+          intervalo del 80%, calificación con datos que el modelo nunca vio,
+          estacionalidad, anomalías y consultas relacionadas.
+        </p>
+      </a>
+      <a class="card c2" href="network/">
+        <p class="tick">redes</p>
+        <h2>Keyword network analyzer</h2>
+        <p>
+          El autocompletado de Google convertido en grafo de co-ocurrencia:
+          grupos de Louvain, intermediación, y exportación a GraphML para
+          Gephi.
+        </p>
+      </a>
+      <a class="card c3" href="amazon/">
+        <p class="tick">redes</p>
+        <h2>Amazon network explorer</h2>
+        <p>
+          El mismo grafo sobre el autocompletado de un marketplace, con diez
+          países y las palabras vacías en el idioma de cada uno.
+        </p>
+      </a>
+      <a class="card c4" href="wiki/">
+        <p class="tick">redes</p>
+        <h2>Wikipedia network</h2>
+        <p>
+          La búsqueda de artículos de Wikipedia como red de conceptos. Los
+          grupos salen por área temática, no por intención de compra.
+        </p>
+      </a>
+    </nav>
+
+    <div class="foot">
+      <p>
+        Las tres primeras tienen una versión que corre entera en la pestaña, sin
+        servidor y sin esperas, en
+        <a href="https://www.abelhga.com/tools">abelhga.com/tools</a>. Esta es la
+        original: más lenta de arrancar, y con lo que no cabe en un navegador.
+      </p>
+      <p>
+        Las tres redes salen a consultar el autocompletado en vivo. Google y
+        Amazon limitan las peticiones de una IP de servidor, así que una cosecha
+        larga puede quedarse a medias: la app lo dice y dibuja con lo que
+        alcanzó a juntar.
+      </p>
+    </div>
+  </main>
+</body>
+</html>

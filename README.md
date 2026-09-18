@@ -57,6 +57,102 @@ compatible endpoint. No key is ever read from anywhere but the environment, and
 Without a key the panel explains what is missing and everything else in the app
 keeps working.
 
+Two ceilings bound what the panel can spend, because on a public host the key
+is one shared env var and anyone can press the button: `AI_MAX_CALLS` per
+browser session (default 5; a reload starts a new session, so this is
+friction, not a wall) and `AI_MAX_CALLS_PER_DAY` per process (default 200).
+The real wall is the monthly limit you set on the key itself at OpenAI.
+
+## Where these run
+
+Three places, one codebase. What separates them is configuration, not code:
+every ceiling below is an environment variable with a safe default, so an
+instance that sets nothing is the public one.
+
+| | Where | For whom | Ceilings |
+|---|---|---|---|
+| Showcase | [abelhga.com/tools](https://www.abelhga.com/tools) — rewritten to run in a browser tab | anyone, no sign-up | the browser's |
+| Free mirror | Posit Connect Cloud | anyone | defaults: 500 requests a crawl, 5 AI read-outs a session |
+| **Private** | **Railway, behind a password** | **the owner** | raised by env vars |
+
+| Variable | Default | What it caps |
+|---|---|---|
+| `MAX_REQUEST_BUDGET` | 500 | requests per crawl, clamped server-side |
+| `AI_MAX_CALLS` | 5 | AI read-outs per browser session |
+| `AI_MAX_CALLS_PER_DAY` | 200 | AI read-outs per process per day |
+| `APP_PASSWORD` | unset | unset means no login at all |
+
+Raising `MAX_REQUEST_BUDGET` buys a longer crawl, not an unlimited one: Google
+and Amazon rate limit a datacenter IP well before a few hundred requests. For a
+genuinely big crawl, run it locally on a residential connection.
+
+## Publishing on Posit Connect Cloud
+
+Each app folder carries a `manifest.json` (from `rsconnect::writeManifest()`,
+R 4.3.3, every package pinned to CRAN), which is what git-backed publishing
+needs to build the app straight from this repository. On
+[Posit Connect Cloud](https://connect.posit.cloud):
+
+1. **Publish → Shiny (R)**, connect GitHub, pick this repository and the
+   `main` branch.
+2. Application directory `Forecasting-trends`, primary file `app.R`. Repeat
+   as separate content for `network` and `AmazonNetwork` (and `WikiNetwork`
+   if you want it). Enable republish-on-push if offered.
+3. Environment variables, per app: `OPENAI_API_KEY` (as a secret), and
+   optionally `OPENAI_MODEL`, `AI_MAX_CALLS`, `AI_MAX_CALLS_PER_DAY`.
+4. Paste the resulting URLs into `src/lib/r-apps.js` in
+   [`my-website`](https://github.com/abelhga/my-website) so abelhga.com
+   links each browser tool to its full app.
+
+What to expect on the free plan (as of September 2026: 20 active hours a
+month, 2 CPUs, 4 GB): the forecasting app takes a while to build the first
+time (rstan/prophet), apps sleep between visits and the first visitor after a
+sleep waits 30–60 s. Because the apps are public, the request budget is
+capped server-side at 500 per crawl and there is no "clear cache" link —
+the suggestion cache is shared by every session in the process and wiping it
+would wipe it for everyone.
+
+## Running the container (Railway, or anywhere)
+
+The `Dockerfile` builds all four apps into one image: Shiny Server serves them
+under one port, nginx sits in front for the port and the password.
+
+```bash
+docker build -t shiny-a1 .
+docker run --rm -p 8080:8080 -e PORT=8080 shiny-a1                 # open
+docker run --rm -p 8080:8080 -e PORT=8080 \
+  -e APP_USER=abel -e APP_PASSWORD=… shiny-a1                      # private
+```
+
+```
+/             a static landing page
+/forecasting  Forecasting-trends
+/network      network
+/amazon       AmazonNetwork
+/wiki         WikiNetwork
+```
+
+Two things the open edition of Shiny Server cannot do on its own, and how
+`docker/entrypoint.sh` does them:
+
+- **The port.** Railway injects `$PORT` at runtime; `listen` in
+  `shiny-server.conf` is a fixed number in a file. nginx listens on `$PORT`
+  and proxies to 3838 inside. Its config also carries the websocket `Upgrade`
+  headers — without those, every app loads and then shows "Disconnected from
+  the server".
+- **The password.** Authentication is a Connect feature, not an open-source
+  one. With `APP_USER` and `APP_PASSWORD` set, nginx asks for them; the hash is
+  generated at each start, so the password lives in the platform's variables
+  and never in this repository. Leave `APP_PASSWORD` unset and the site is
+  open — same image, public deployment.
+
+On Railway: new project → deploy from this repository → set the variables
+above → generate a domain. The build takes a few minutes because the base
+image pulls its R packages as precompiled binaries from Posit Package Manager
+(with plain CRAN, prophet would drag rstan through a C++ compile instead).
+Prophet is memory-hungry once loaded; if the forecasting app dies on open,
+give the service more RAM.
+
 ## Layout
 
 ```
@@ -89,8 +185,9 @@ Rscript tests/run_all.R
 ```
 
 Covers tokenising, graph construction, suggestion harvesting (budgets, caching,
-failure handling), Google Trends series cleaning, granularity inference and
-anomaly scoring. No network calls, no API key.
+failure handling), Google Trends series cleaning, granularity inference,
+anomaly scoring and the AI panel's request shape and spend ceilings. No
+network calls, no API key.
 
 ## What each app does
 
@@ -144,8 +241,9 @@ share.
 
 - A **request budget** with a live estimate, so a depth-3 alphabetical crawl
   (703 requests) cannot be started by accident. Progress is reported per
-  request and results are cached for the session (a sidebar link clears the
-  cache when you want fresh data).
+  request and results are cached in the process (shared by every session, so
+  a term someone else just looked up costs nothing). The budget tops out at
+  500 per crawl; a full depth-3 alphabetical crawl is a local run.
 - **Adaptive defaults** — after harvesting, the app picks the physics solver,
   node count, edge-weight floor and label size that suit the graph it actually
   got.
