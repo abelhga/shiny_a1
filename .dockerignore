@@ -1,0 +1,23 @@
+# Lo que no tiene por qué viajar en la imagen. Cada exclusión ahorra capa y,
+# sobre todo, evita que un cambio en un archivo irrelevante invalide la caché
+# de construcción y reinstale cien paquetes.
+.git
+.gitignore
+.Renviron
+.Renviron.example
+*.Rproj
+.Rproj.user
+
+# Pruebas y material de archivo: no se ejecutan en el contenedor.
+tests/
+code/
+documentation/
+processed_data/
+
+# shared/ es la fuente de la verdad, pero cada app ya lleva su copia en R/
+# (tools/sync_shared.sh). Copiar las dos duplicaría el código en la imagen.
+shared/
+tools/
+
+# Los manifest.json son para publicar en Posit Connect Cloud, no para Docker.
+*/manifest.json

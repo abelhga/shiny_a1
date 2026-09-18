@@ -101,3 +101,23 @@ stopifnot(suggest_solver(500) == "barnesHut", suggest_solver(200) == "forceAtlas
           suggest_solver(50) == "repulsion")
 stopifnot(`%||%`(NULL, 5) == 5, `%||%`(NA, 5) == 5, `%||%`(3, 5) == 3)
 cat("  ok - every graph-building check passed\n")
+
+# The crawl ceiling is configuration, not a constant: a public deployment that
+# sets nothing stays at 500, the owner's private one raises it. Reading it from
+# the environment is what lets one image serve both.
+source("shared/network_app.R")
+old_budget <- Sys.getenv("MAX_REQUEST_BUDGET")
+on.exit(if (nzchar(old_budget)) Sys.setenv(MAX_REQUEST_BUDGET = old_budget)
+        else Sys.unsetenv("MAX_REQUEST_BUDGET"), add = TRUE)
+
+Sys.unsetenv("MAX_REQUEST_BUDGET")
+stopifnot(MAX_REQUEST_BUDGET() == 500L)
+Sys.setenv(MAX_REQUEST_BUDGET = "5000")
+stopifnot(MAX_REQUEST_BUDGET() == 5000L)
+# Nonsense must not disable the ceiling.
+for (bad in c("", "abc", "0", "-1")) {
+  Sys.setenv(MAX_REQUEST_BUDGET = bad)
+  stopifnot(MAX_REQUEST_BUDGET() == 500L)
+}
+Sys.unsetenv("MAX_REQUEST_BUDGET")
+cat("  ok - the request ceiling defaults to 500 and only a sane env var raises it\n")
