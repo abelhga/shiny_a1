@@ -57,6 +57,38 @@ compatible endpoint. No key is ever read from anywhere but the environment, and
 Without a key the panel explains what is missing and everything else in the app
 keeps working.
 
+Two ceilings bound what the panel can spend, because on a public host the key
+is one shared env var and anyone can press the button: `AI_MAX_CALLS` per
+browser session (default 5; a reload starts a new session, so this is
+friction, not a wall) and `AI_MAX_CALLS_PER_DAY` per process (default 200).
+The real wall is the monthly limit you set on the key itself at OpenAI.
+
+## Publishing on Posit Connect Cloud
+
+Each app folder carries a `manifest.json` (from `rsconnect::writeManifest()`,
+R 4.3.3, every package pinned to CRAN), which is what git-backed publishing
+needs to build the app straight from this repository. On
+[Posit Connect Cloud](https://connect.posit.cloud):
+
+1. **Publish → Shiny (R)**, connect GitHub, pick this repository and the
+   `main` branch.
+2. Application directory `Forecasting-trends`, primary file `app.R`. Repeat
+   as separate content for `network` and `AmazonNetwork` (and `WikiNetwork`
+   if you want it). Enable republish-on-push if offered.
+3. Environment variables, per app: `OPENAI_API_KEY` (as a secret), and
+   optionally `OPENAI_MODEL`, `AI_MAX_CALLS`, `AI_MAX_CALLS_PER_DAY`.
+4. Paste the resulting URLs into `src/lib/r-apps.js` in
+   [`my-website`](https://github.com/abelhga/my-website) so abelhga.com
+   links each browser tool to its full app.
+
+What to expect on the free plan (as of September 2026: 20 active hours a
+month, 2 CPUs, 4 GB): the forecasting app takes a while to build the first
+time (rstan/prophet), apps sleep between visits and the first visitor after a
+sleep waits 30–60 s. Because the apps are public, the request budget is
+capped server-side at 500 per crawl and there is no "clear cache" link —
+the suggestion cache is shared by every session in the process and wiping it
+would wipe it for everyone.
+
 ## Layout
 
 ```
@@ -89,8 +121,9 @@ Rscript tests/run_all.R
 ```
 
 Covers tokenising, graph construction, suggestion harvesting (budgets, caching,
-failure handling), Google Trends series cleaning, granularity inference and
-anomaly scoring. No network calls, no API key.
+failure handling), Google Trends series cleaning, granularity inference,
+anomaly scoring and the AI panel's request shape and spend ceilings. No
+network calls, no API key.
 
 ## What each app does
 
@@ -144,8 +177,9 @@ share.
 
 - A **request budget** with a live estimate, so a depth-3 alphabetical crawl
   (703 requests) cannot be started by accident. Progress is reported per
-  request and results are cached for the session (a sidebar link clears the
-  cache when you want fresh data).
+  request and results are cached in the process (shared by every session, so
+  a term someone else just looked up costs nothing). The budget tops out at
+  500 per crawl; a full depth-3 alphabetical crawl is a local run.
 - **Adaptive defaults** — after harvesting, the app picks the physics solver,
   node count, edge-weight floor and label size that suit the graph it actually
   got.

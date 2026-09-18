@@ -36,6 +36,48 @@ OPENAI_EFFORTS <- c(
 OPENAI_DEFAULT_MODEL  <- "gpt-5.6-luna"
 OPENAI_DEFAULT_EFFORT <- "low"
 
+# --- Spend guards ------------------------------------------------------------
+# The key is one server-side env var shared by every visitor, and on a public
+# host anyone can press the button. Two ceilings bound what a stranger can
+# spend: per browser session (a refresh starts a new one, so this alone is
+# only friction) and per calendar day for the whole process (the real wall,
+# short of the monthly limit set on the key itself). Both are env-tunable so a
+# private deployment can lift them.
+AI_MAX_CALLS_PER_SESSION <- function() {
+  v <- suppressWarnings(as.integer(Sys.getenv("AI_MAX_CALLS", "5")))
+  if (is.na(v) || v < 0L) 5L else v
+}
+AI_MAX_CALLS_PER_DAY <- function() {
+  v <- suppressWarnings(as.integer(Sys.getenv("AI_MAX_CALLS_PER_DAY", "200")))
+  if (is.na(v) || v < 0L) 200L else v
+}
+
+# Process-wide daily counter. Lives in this environment (not in a session) on
+# purpose: it is meant to be shared by every session the process serves.
+.ai_daily <- new.env(parent = emptyenv())
+.ai_daily$day   <- NA_character_
+.ai_daily$calls <- 0L
+
+#' Count one attempted call against today's ceiling.
+#' @return TRUE if the call may proceed, FALSE if the daily ceiling is spent.
+ai_daily_take <- function(now = Sys.Date()) {
+  today <- as.character(now)
+  if (!identical(.ai_daily$day, today)) {
+    .ai_daily$day   <- today
+    .ai_daily$calls <- 0L
+  }
+  if (.ai_daily$calls >= AI_MAX_CALLS_PER_DAY()) return(FALSE)
+  .ai_daily$calls <- .ai_daily$calls + 1L
+  TRUE
+}
+
+#' Reset the daily counter (tests).
+ai_daily_reset <- function() {
+  .ai_daily$day   <- NA_character_
+  .ai_daily$calls <- 0L
+  invisible(NULL)
+}
+
 openai_api_key <- function() trimws(Sys.getenv("OPENAI_API_KEY", ""))
 
 openai_available <- function() nzchar(openai_api_key())
@@ -204,6 +246,7 @@ aiInsightsUI <- function(id, label = "Ask the model") {
                      placeholder = paste("Optional: a question or angle to focus on,",
                                          "e.g. \"which cluster should I target first?\""),
                      width = "100%"),
+    shiny::uiOutput(ns("quota")),
     shiny::uiOutput(ns("answer"))
   )
 }
@@ -217,8 +260,29 @@ aiInsightsServer <- function(id, context,
   shiny::moduleServer(id, function(input, output, session) {
 
     result <- shiny::reactiveVal(NULL)
+    # Attempts this session, counted before the request goes out so that a
+    # failing call still spends one: retrying into a 429 is exactly the loop
+    # the ceiling exists to stop.
+    calls  <- shiny::reactiveVal(0L)
 
     shiny::observeEvent(input$run, {
+      per_session <- AI_MAX_CALLS_PER_SESSION()
+      if (calls() >= per_session) {
+        result(list(ok = FALSE, text = "",
+                    error = sprintf(paste("This session has used its %d read-outs.",
+                                          "Reload the app to start a new session."),
+                                    per_session)))
+        return()
+      }
+      calls(calls() + 1L)
+
+      if (!ai_daily_take()) {
+        result(list(ok = FALSE, text = "",
+                    error = paste("The AI panel has reached its daily limit on this host.",
+                                  "Everything else keeps working; try again tomorrow.")))
+        return()
+      }
+
       briefing <- tryCatch(context(), error = function(e) NULL)
 
       if (is.null(briefing) || !nzchar(paste(briefing, collapse = ""))) {
@@ -247,6 +311,14 @@ aiInsightsServer <- function(id, context,
           max_output_tokens = max_output_tokens
         ))
       })
+    })
+
+    output$quota <- shiny::renderUI({
+      per_session <- AI_MAX_CALLS_PER_SESSION()
+      if (!openai_available() || per_session <= 0L) return(NULL)
+      left <- max(0L, per_session - calls())
+      shiny::div(class = "ai-quota small text-muted",
+                 sprintf("%d of %d read-outs left this session.", left, per_session))
     })
 
     output$answer <- shiny::renderUI({

@@ -87,3 +87,33 @@ stopifnot(setequal(OPENAI_MODELS, c("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-so
 stopifnot(OPENAI_DEFAULT_MODEL %in% OPENAI_MODELS)
 stopifnot(OPENAI_DEFAULT_EFFORT %in% OPENAI_EFFORTS)
 ok("the model and effort menus are self-consistent")
+
+# --- spend guards ------------------------------------------------------------
+# Neither ceiling talks to the network: the per-session one is checked before
+# openai_complete is called, the daily one is a counter in this process.
+ai_daily_reset()
+old_day <- Sys.getenv("AI_MAX_CALLS_PER_DAY")
+Sys.setenv(AI_MAX_CALLS_PER_DAY = "2")
+stopifnot(ai_daily_take(as.Date("2026-09-18")), ai_daily_take(as.Date("2026-09-18")))
+stopifnot(!ai_daily_take(as.Date("2026-09-18")))
+# A new day starts the count over.
+stopifnot(ai_daily_take(as.Date("2026-09-19")))
+if (nzchar(old_day)) Sys.setenv(AI_MAX_CALLS_PER_DAY = old_day) else Sys.unsetenv("AI_MAX_CALLS_PER_DAY")
+ai_daily_reset()
+ok("the daily ceiling counts attempts per process and resets with the date")
+
+old_calls <- Sys.getenv("AI_MAX_CALLS")
+Sys.setenv(AI_MAX_CALLS = "2")
+Sys.setenv(OPENAI_API_KEY = "")   # no key: a call that gets through would say so
+shiny::testServer(
+  aiInsightsServer,
+  args = list(id = "ai", context = function() "briefing"),
+  {
+    session$setInputs(model = "gpt-5.6-luna", effort = "low", focus = "")
+    for (i in 1:3) session$setInputs(run = i)
+    # The third press never reaches the client: it is refused by the session cap.
+    stopifnot(!isTRUE(result()$ok), grepl("read-outs", result()$error, fixed = TRUE))
+  }
+)
+if (nzchar(old_calls)) Sys.setenv(AI_MAX_CALLS = old_calls) else Sys.unsetenv("AI_MAX_CALLS")
+ok("the per-session ceiling refuses the call before any request is built")
