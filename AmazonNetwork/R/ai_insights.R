@@ -267,7 +267,8 @@ aiInsightsServer <- function(id, context,
 
     shiny::observeEvent(input$run, {
       per_session <- AI_MAX_CALLS_PER_SESSION()
-      if (calls() >= per_session) {
+      owner <- isTRUE(session$userData$owner)   # set by gate.R; no ceiling for the owner
+      if (!owner && calls() >= per_session) {
         result(list(ok = FALSE, text = "",
                     error = sprintf(paste("This session has used its %d read-outs.",
                                           "Reload the app to start a new session."),
@@ -315,7 +316,7 @@ aiInsightsServer <- function(id, context,
 
     output$quota <- shiny::renderUI({
       per_session <- AI_MAX_CALLS_PER_SESSION()
-      if (!openai_available() || per_session <= 0L) return(NULL)
+      if (!openai_available() || per_session <= 0L || isTRUE(session$userData$owner)) return(NULL)
       left <- max(0L, per_session - calls())
       shiny::div(class = "ai-quota small text-muted",
                  sprintf("%d of %d read-outs left this session.", left, per_session))

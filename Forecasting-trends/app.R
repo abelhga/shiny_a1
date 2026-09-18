@@ -66,6 +66,7 @@ ui <- bslib::page_sidebar(
 
     shiny::actionButton("fetch", "Fetch trends", class = "btn btn-primary w-100",
                         icon = shiny::icon("cloud-arrow-down")),
+    gate_share_button(),
 
     shiny::hr(),
 
@@ -111,7 +112,11 @@ ui <- bslib::page_sidebar(
     )
   ),
 
-  shiny::tags$head(shiny::tags$style(app_styles())),
+  shiny::tags$head(
+    shiny::tags$style(app_styles()),
+    gate_head("forecasting", "Search Trends Forecasting",
+              "Relative search interest from Google Trends, forecast with Prophet.")
+  ),
 
   shiny::div(
     class = "app-subtitle mb-2",
@@ -202,6 +207,43 @@ ui <- bslib::page_sidebar(
 # --- Server ----------------------------------------------------------------
 
 server <- function(input, output, session) {
+  # The funnel (see R/gate.R). Off unless GATE_ENABLED=1.
+  gate <- gate_server(input, output, session, app_id = "forecasting", main_button = "#fetch")
+
+  # If the websocket drops and comes back (a phone that locked its screen),
+  # the client re-attaches to this same session instead of greying out and
+  # forcing a reload that loses everything. Shiny Server honours it.
+  session$allowReconnect(TRUE)
+
+  # The analysis lives in the URL (?kw=a,b&geo=MX&time=today+5-y): opening a
+  # link runs it, a forced reload reproduces it, and the share button copies
+  # it. The inputs are updated first, then the fetch fires once they have
+  # come back from the browser - not on a timer.
+  autorun <- shiny::reactiveVal(0L)
+  pending <- shiny::reactiveVal(NULL)
+  shiny::observe({
+    p <- gate_parse_query(shiny::isolate(session$clientData$url_search))
+    if (!nzchar(p$kw %||% "")) return()
+    want <- list(kw = p$kw,
+                 geo = if (isTRUE(p$geo %in% REGIONS)) p$geo else NULL,
+                 time = if (isTRUE(p$time %in% TIME_CHOICES)) p$time else NULL)
+    shiny::updateTextInput(session, "keywords", value = want$kw)
+    if (!is.null(want$geo))  shiny::updateSelectInput(session, "geo", selected = want$geo)
+    if (!is.null(want$time)) shiny::updateSelectInput(session, "time", selected = want$time)
+    pending(want)
+  }, priority = 10) |> shiny::bindEvent(session$clientData$url_search, once = TRUE)
+
+  shiny::observe({
+    want <- pending()
+    if (is.null(want)) return()
+    ok <- identical(input$keywords, want$kw) &&
+      (is.null(want$geo)  || identical(input$geo, want$geo)) &&
+      (is.null(want$time) || identical(input$time, want$time))
+    if (ok) {
+      pending(NULL)
+      autorun(shiny::isolate(autorun()) + 1L)
+    }
+  })
 
   shiny::observeEvent(input$dark_mode, {
     session$setCurrentTheme(app_theme(isTRUE(input$dark_mode)))
@@ -213,7 +255,12 @@ server <- function(input, output, session) {
   })
 
   # --- data ----------------------------------------------------------------
-  trends <- shiny::eventReactive(input$fetch, {
+  trends <- shiny::eventReactive({ input$fetch; autorun() }, {
+    if (!isTRUE(gate$allowed)) {
+      gate_refuse(gate)
+      return(NULL)
+    }
+
     keywords <- requested_keywords()
 
     if (!length(keywords)) {
@@ -233,11 +280,19 @@ server <- function(input, output, session) {
       keywords <- utils::head(keywords, MAX_KEYWORDS)
     }
 
+    gate$context <- paste(keywords, collapse = ", ")
+    gate_set_url(session, list(kw = paste(keywords, collapse = ","), geo = input$geo, time = input$time))
+
+    # Cached for a few hours per (terms, region, span, related): the visitors
+    # of one post ask for the same thing, and Google rate limits this IP.
     result <- shiny::withProgress(message = "Asking Google Trends", value = 0.4, {
-      tryCatch(
-        gtrendsR::gtrends(keyword = keywords, geo = input$geo, time = input$time,
-                          tz = 0, onlyInterest = !isTRUE(input$fetch_related)),
-        error = function(e) e
+      gate_cached(
+        c("trends", keywords, input$geo, input$time, isTRUE(input$fetch_related)),
+        function() tryCatch(
+          gtrendsR::gtrends(keyword = keywords, geo = input$geo, time = input$time,
+                            tz = 0, onlyInterest = !isTRUE(input$fetch_related)),
+          error = function(e) e
+        )
       )
     })
 
@@ -1085,5 +1140,18 @@ server <- function(input, output, session) {
     )
   )
 }
+
+# Warm the featured analysis when this R process starts. Shiny Server starts
+# the process on the first request - the container's own self-check at boot -
+# so the LinkedIn link is served from the disk cache before anyone clicks it.
+local({
+  f <- gate_featured()
+  if (!is.null(f)) tryCatch({
+    gate_cached(c("trends", f$kw, f$geo, f$time, FALSE), function() tryCatch(
+      gtrendsR::gtrends(keyword = f$kw, geo = f$geo, time = f$time, tz = 0, onlyInterest = TRUE),
+      error = function(e) e))
+    message("[gate] featured analysis warmed: ", paste(f$kw, collapse = ", "))
+  }, error = function(e) message("[gate] featured warm-up failed: ", conditionMessage(e)))
+})
 
 shinyApp(ui = ui, server = server)
