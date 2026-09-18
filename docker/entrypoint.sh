@@ -47,8 +47,11 @@ fi
 # Por omisión nginx escribe sus errores a /var/log/nginx/error.log, o sea a un
 # archivo dentro del contenedor que nadie va a leer nunca. Railway solo muestra
 # stdout y stderr: sin esto, un fallo de configuración se ve como un 500 en
-# blanco y no hay forma de saber de qué se queja.
-sed -i 's|^\s*error_log .*|error_log /dev/stderr info;|' /etc/nginx/nginx.conf
+# blanco y no hay forma de saber de qué se queja. Nivel `warn` y no `info`
+# porque en `info` cada cierre de conexión escribe un renglón y el log real se
+# ahoga; lo que importa para diagnosticar (un permiso denegado al leer las
+# contraseñas, un upstream caído) se registra en `error` o `crit`.
+sed -i 's|^\s*error_log .*|error_log /dev/stderr warn;|' /etc/nginx/nginx.conf
 
 cat > /etc/nginx/sites-available/default <<NGINX
 # Generado en el arranque por entrypoint.sh. Editarlo aquí no sirve de nada:
@@ -67,7 +70,7 @@ server {
   server_name _;
 
   access_log /dev/stdout;
-  error_log  /dev/stderr info;
+  error_log  /dev/stderr warn;
 
   ${AUTH_BLOCK}
 
