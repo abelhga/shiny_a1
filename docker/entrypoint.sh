@@ -131,6 +131,15 @@ server {
     # puede meterlas en un iframe el día que quiera, y nadie más.
     proxy_hide_header X-Frame-Options;
     add_header Content-Security-Policy "frame-ancestors 'self' https://www.abelhga.com https://abelhga.com" always;
+
+    # bslib sirve el tema compilado siempre en la misma URL
+    # (bootstrap-5.3.1/bootstrap.min.css) aunque cambien los colores, y Shiny
+    # la manda sin Cache-Control: el navegador la guardaba por heurística y,
+    # tras un despliegue, seguía pintando el tema viejo hasta un día después
+    # (pasó con la paleta océano en el iPhone). no-cache obliga a revalidar en
+    # cada visita. Va en el mismo nivel que el CSP: en nginx un add_header en
+    # un bloque anula los heredados, así salen los dos.
+    add_header Cache-Control "no-cache" always;
   }
 }
 NGINX
