@@ -368,9 +368,9 @@ render_keyword_network <- function(frames,
   if (is.null(frames) || !nrow(frames$nodes)) return(NULL)
 
   n_nodes <- nrow(frames$nodes)
-  font_colour   <- if (dark) "#e3e9e5" else "#10231f"
-  stroke_colour <- if (dark) "#0c1512" else "#ffffff"
-  edge_colour   <- if (dark) "#26332e" else "#cdd6d0"
+  font_colour   <- if (dark) "#e2eaee" else "#0f2230"
+  stroke_colour <- if (dark) "#0a1419" else "#ffffff"
+  edge_colour   <- if (dark) "#22323b" else "#cbd7dc"
 
   # Tuning for the chosen solver only. visPhysics() means to reject more than
   # one solver block at a time (its own guard misfires on lists, so passing

@@ -22,9 +22,11 @@ for (.f in list.files("R", pattern = "[.]R$", full.names = TRUE)) source(.f)
 
 MAX_KEYWORDS <- 5L  # Google Trends compares at most five terms at a time
 
-# The site's accents first (teal, magenta, sand), then two compatible extras
-# for four- and five-term comparisons.
-SERIES_COLOURS <- c("#0e7c6b", "#b8336a", "#c8973f", "#4C78A8", "#8C6BB1")
+# The site's accents first (ocean blue, magenta, sand), then green and violet
+# for four- and five-term comparisons: the same order as the site's
+# ForecastStudio. The fourth used to be #4C78A8, a blue too close to the ocean
+# accent to tell apart, which is why the site moved it to green too.
+SERIES_COLOURS <- c("#0a6f8f", "#b8336a", "#c8973f", "#557f33", "#8c6bb1")
 
 series_colour <- function(i) SERIES_COLOURS[((i - 1) %% length(SERIES_COLOURS)) + 1]
 
@@ -134,7 +136,7 @@ ui <- bslib::page_sidebar(
       icon = shiny::icon("chart-line"),
       shinycssloaders::withSpinner(
         plotly::plotlyOutput("trends_plot", height = "600px"),
-        type = 8, color = "#0e7c6b"
+        type = 8, color = "#0a6f8f"
       )
     ),
 
@@ -143,7 +145,7 @@ ui <- bslib::page_sidebar(
       icon = shiny::icon("arrow-trend-up"),
       shinycssloaders::withSpinner(
         plotly::plotlyOutput("forecast_plot", height = "540px"),
-        type = 8, color = "#0e7c6b"
+        type = 8, color = "#0a6f8f"
       ),
       shiny::uiOutput("accuracy_note")
     ),
@@ -155,7 +157,7 @@ ui <- bslib::page_sidebar(
                  "How Prophet splits the series into trend and repeating cycles."),
       shinycssloaders::withSpinner(
         shiny::plotOutput("components_plot", height = "620px"),
-        type = 8, color = "#0e7c6b"
+        type = 8, color = "#0a6f8f"
       )
     ),
 
@@ -164,7 +166,7 @@ ui <- bslib::page_sidebar(
       icon = shiny::icon("triangle-exclamation"),
       shinycssloaders::withSpinner(
         plotly::plotlyOutput("anomaly_plot", height = "420px"),
-        type = 8, color = "#0e7c6b"
+        type = 8, color = "#0a6f8f"
       ),
       DT::DTOutput("anomaly_table")
     ),
@@ -689,7 +691,7 @@ server <- function(input, output, session) {
       figure, x = future_rows$ds,
       ymin = future_rows$yhat_lower, ymax = future_rows$yhat_upper,
       name = "80% interval", line = list(width = 0),
-      fillcolor = "rgba(14,124,107,0.18)", hoverinfo = "skip"
+      fillcolor = "rgba(10,111,143,0.18)", hoverinfo = "skip"
     )
     figure <- plotly::add_lines(
       figure, x = past$ds, y = past$y, name = "Observed",
