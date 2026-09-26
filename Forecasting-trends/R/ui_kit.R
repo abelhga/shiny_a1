@@ -21,19 +21,22 @@
 }
 
 #' The site palette, light or dark. Values copied from the website's
-#' tokens.css so the apps and the site read as one design.
+#' tokens.css so the apps and the site read as one design. The site moved
+#' from green to the "ocean" palette (my-website f265551); keep these in step
+#' with it, including the rgba() grid in plotly_theme(), the visNetwork
+#' colours in keyword_network.R and docker/index.html.
 app_palette <- function(dark = FALSE) {
   if (isTRUE(dark)) {
     list(
-      paper    = "#0c1512", surface = "#131f1b", rule = "#26332e",
-      ink      = "#e3e9e5", ink_soft = "#a9b8b1", muted = "#7f8f87",
-      teal     = "#3fbfa5", magenta = "#e0709e", sand = "#dcae5c"
+      paper    = "#0a1419", surface = "#111e25", rule = "#22323b",
+      ink      = "#e2eaee", ink_soft = "#a7b8c0", muted = "#7d8f98",
+      teal     = "#4cb3d4", magenta = "#e0709e", sand = "#dcae5c"
     )
   } else {
     list(
-      paper    = "#edf0ec", surface = "#ffffff", rule = "#cdd6d0",
-      ink      = "#10231f", ink_soft = "#3d534c", muted = "#6b7a72",
-      teal     = "#0e7c6b", magenta = "#b8336a", sand = "#c8973f"
+      paper    = "#eaf0f2", surface = "#ffffff", rule = "#cbd7dc",
+      ink      = "#0f2230", ink_soft = "#3b5260", muted = "#687a85",
+      teal     = "#0a6f8f", magenta = "#b8336a", sand = "#c8973f"
     )
   }
 }
@@ -179,7 +182,7 @@ fmt_num <- function(x, digits = 2) {
 #' figure responsive, so the toolbar no longer collides with the legend.
 plotly_theme <- function(p, dark = FALSE, legend_position = "top") {
   pal <- app_palette(dark)
-  grid <- if (isTRUE(dark)) "rgba(227,233,229,0.12)" else "rgba(16,35,31,0.10)"
+  grid <- if (isTRUE(dark)) "rgba(226,234,238,0.12)" else "rgba(15,34,48,0.10)"
   mono <- "IBM Plex Mono, ui-monospace, monospace"
   body <- "IBM Plex Sans, system-ui, sans-serif"
 
